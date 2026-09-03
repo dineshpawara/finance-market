@@ -16,14 +16,15 @@ import {
   ArrowUpRight,
   ArrowDownRight,
   Check,
-  ChevronDown
+  ChevronDown,
+  GripVertical
 } from 'lucide-react';
 import { createChart, ColorType, CandlestickSeries, HistogramSeries, LineSeries } from 'lightweight-charts';
 import type { IChartApi } from 'lightweight-charts';
 import { GROWW_THEME, getChartThemeOptions } from '../utils/theme';
 import { useTheme } from '../context/ThemeContext';
 import { usePaperTrading } from '../context/PaperTradingContext';
-import { generateCandleData, generateOptionChainData } from '../utils/mockMarketData';
+import { generateTimeframeCandles, generateOptionChainData } from '../utils/mockMarketData';
 import type { CandleData, OptionStrikeData } from '../utils/mockMarketData';
 import {
   calculateSMA,
@@ -46,10 +47,11 @@ export const ProTradingTerminal: React.FC<ProTradingTerminalProps> = ({
   const { theme } = useTheme();
   const { balance, availableMargin, usedMargin, totalPnl, positions, orders, placeOrder, closePosition, resetAccount } = usePaperTrading();
 
-  // Active Symbol & Timeframe State
+  // Active Symbol, Timeframe & Time Range State
   const [activeSymbol, setActiveSymbol] = useState(initialSymbol);
   const [timeframe, setTimeframe] = useState('5m');
-  const [activeDockTab, setActiveDockTab] = useState<DockTab>('chain');
+  const [activeTimeRange, setActiveTimeRange] = useState('1D');
+  const [activeDockTab, setActiveDockTab] = useState<DockTab | null>('chain');
 
   // Indicators Toggle State
   const [showIndicatorModal, setShowIndicatorModal] = useState(false);
@@ -71,13 +73,15 @@ export const ProTradingTerminal: React.FC<ProTradingTerminalProps> = ({
   // Drawing Tools State
   const [activeDrawingTool, setActiveDrawingTool] = useState<string>('cursor');
 
-  // Mock Market Data
-  const [candles] = useState<CandleData[]>(() => generateCandleData(24350, 150));
-  const [optionChainData] = useState(() => generateOptionChainData(24350));
-  const optionChain: OptionStrikeData[] = optionChainData.strikes;
-
   const chartContainerRef = useRef<HTMLDivElement>(null);
   const chartApiRef = useRef<IChartApi | null>(null);
+  const candlestickSeriesRef = useRef<any>(null);
+  const volumeSeriesRef = useRef<any>(null);
+
+  // Multi-day / Multi-timeframe Candles State
+  const [candles, setCandles] = useState<CandleData[]>(() => generateTimeframeCandles(initialSymbol, '5m'));
+  const [optionChainData] = useState(() => generateOptionChainData(24350));
+  const optionChain: OptionStrikeData[] = optionChainData.strikes;
 
   // Current Live Price
   const currentCandle = candles[candles.length - 1];
@@ -94,11 +98,10 @@ export const ProTradingTerminal: React.FC<ProTradingTerminalProps> = ({
     { name: 'BANKNIFTY', price: '57,264.85', change: '+117.35 (+0.21%)', positive: true },
   ];
 
-  // Initialize and Render Chart with Indicators
+  // Initialize & Create Main Lightweight Chart (Runs on symbol, timeframe, indicators or theme change)
   useEffect(() => {
     if (!chartContainerRef.current) return;
 
-    // Safely remove any existing chart instance
     if (chartApiRef.current) {
       try {
         chartApiRef.current.remove();
@@ -109,8 +112,10 @@ export const ProTradingTerminal: React.FC<ProTradingTerminalProps> = ({
     }
 
     const themeOpts = getChartThemeOptions(theme);
+    const initialCandles = generateTimeframeCandles(activeSymbol, timeframe);
+    setCandles(initialCandles);
 
-    // Create Main Chart
+    // Create Main Chart with full free-moving pan, zoom & drag controls
     const chart = createChart(chartContainerRef.current, {
       width: chartContainerRef.current.clientWidth,
       height: 480,
@@ -121,8 +126,33 @@ export const ProTradingTerminal: React.FC<ProTradingTerminalProps> = ({
       },
       grid: themeOpts.grid,
       crosshair: themeOpts.crosshair,
-      timeScale: themeOpts.timeScale,
-      rightPriceScale: themeOpts.rightPriceScale,
+      timeScale: {
+        borderColor: themeOpts.timeScale.borderColor,
+        timeVisible: true,
+        secondsVisible: false,
+        rightOffset: 12,
+        barSpacing: 8,
+        minBarSpacing: 1,
+        fixLeftEdge: false,
+        fixRightEdge: false,
+        lockVisibleTimeRangeOnResize: false,
+        rightBarStaysOnScroll: true,
+      },
+      rightPriceScale: {
+        borderColor: themeOpts.rightPriceScale.borderColor,
+        autoScale: true,
+      },
+      handleScroll: {
+        mouseWheel: true,
+        pressedMouseMove: true,
+        horzTouchDrag: true,
+        vertTouchDrag: true,
+      },
+      handleScale: {
+        axisPressedMouseMove: true,
+        mouseWheel: true,
+        pinch: true,
+      },
     });
 
     chartApiRef.current = chart;
@@ -135,29 +165,28 @@ export const ProTradingTerminal: React.FC<ProTradingTerminalProps> = ({
       wickUpColor: themeOpts.series.wickUpColor,
       wickDownColor: themeOpts.series.wickDownColor,
     });
+    candlestickSeriesRef.current = candlestickSeries;
 
-    const formattedCandles = candles.map((c: CandleData) => ({
+    candlestickSeries.setData(initialCandles.map((c: CandleData) => ({
       time: c.time,
       open: c.open,
       high: c.high,
       low: c.low,
       close: c.close,
-    }));
-
-    candlestickSeries.setData(formattedCandles);
+    })));
 
     // Volume Series
     const volumeSeries = chart.addSeries(HistogramSeries, {
       priceFormat: { type: 'volume' },
       priceScaleId: '',
     });
-
     volumeSeries.priceScale().applyOptions({
       scaleMargins: { top: 0.8, bottom: 0 },
     });
+    volumeSeriesRef.current = volumeSeries;
 
     volumeSeries.setData(
-      candles.map((c: CandleData) => ({
+      initialCandles.map((c: CandleData) => ({
         time: c.time,
         value: c.volume,
         color: c.close >= c.open ? themeOpts.series.volumeUp : themeOpts.series.volumeDown,
@@ -165,39 +194,23 @@ export const ProTradingTerminal: React.FC<ProTradingTerminalProps> = ({
     );
 
     // Technical Overlay Indicators
-    // 1. SMA (20)
     if (indicators.sma) {
-      const smaData = calculateSMA(candles, 20);
-      const smaSeries = chart.addSeries(LineSeries, {
-        color: '#ffb703',
-        lineWidth: 2,
-      });
+      const smaData = calculateSMA(initialCandles, 20);
+      const smaSeries = chart.addSeries(LineSeries, { color: '#ffb703', lineWidth: 2 });
       smaSeries.setData(smaData);
     }
-
-    // 2. EMA (50)
     if (indicators.ema) {
-      const emaData = calculateEMA(candles, 30);
-      const emaSeries = chart.addSeries(LineSeries, {
-        color: '#387ed1',
-        lineWidth: 2,
-      });
+      const emaData = calculateEMA(initialCandles, 30);
+      const emaSeries = chart.addSeries(LineSeries, { color: '#387ed1', lineWidth: 2 });
       emaSeries.setData(emaData);
     }
-
-    // 3. VWAP
     if (indicators.vwap) {
-      const vwapData = calculateVWAP(candles);
-      const vwapSeries = chart.addSeries(LineSeries, {
-        color: '#8c52ff',
-        lineWidth: 2,
-      });
+      const vwapData = calculateVWAP(initialCandles);
+      const vwapSeries = chart.addSeries(LineSeries, { color: '#8c52ff', lineWidth: 2 });
       vwapSeries.setData(vwapData);
     }
-
-    // 4. Bollinger Bands
     if (indicators.bollinger) {
-      const bbData = calculateBollingerBands(candles, 20, 2);
+      const bbData = calculateBollingerBands(initialCandles, 20, 2);
       const bbUpper = chart.addSeries(LineSeries, { color: 'rgba(56, 126, 209, 0.6)', lineWidth: 1 });
       const bbLower = chart.addSeries(LineSeries, { color: 'rgba(56, 126, 209, 0.6)', lineWidth: 1 });
       const bbMiddle = chart.addSeries(LineSeries, { color: 'rgba(255, 183, 3, 0.6)', lineWidth: 1 });
@@ -214,7 +227,7 @@ export const ProTradingTerminal: React.FC<ProTradingTerminalProps> = ({
         try {
           chartApiRef.current.applyOptions({ width: chartContainerRef.current.clientWidth });
         } catch {
-          // Ignore if chart was disposed during window resize
+          // Ignore
         }
       }
     };
@@ -232,7 +245,69 @@ export const ProTradingTerminal: React.FC<ProTradingTerminalProps> = ({
         chartApiRef.current = null;
       }
     };
-  }, [candles, indicators, theme]);
+  }, [activeSymbol, timeframe, indicators, theme]);
+
+  // Smooth Live Real-Time Ticker (Updates latest candle in-place WITHOUT destroying or resetting chart scroll position)
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setCandles(prevCandles => {
+        if (!prevCandles || prevCandles.length === 0) return prevCandles;
+
+        const updated = [...prevCandles];
+        const lastIndex = updated.length - 1;
+        const last = updated[lastIndex];
+
+        const volatility = last.close * 0.0006;
+        const priceDelta = (Math.random() - 0.495) * volatility;
+        const newClose = Number(Math.max(1, last.close + priceDelta).toFixed(2));
+        const newHigh = Number(Math.max(last.high, newClose).toFixed(2));
+        const newLow = Number(Math.min(last.low, newClose).toFixed(2));
+        const newVolume = last.volume + Math.floor(Math.random() * 45) + 5;
+
+        const updatedLast = {
+          ...last,
+          close: newClose,
+          high: newHigh,
+          low: newLow,
+          volume: newVolume,
+        };
+
+        updated[lastIndex] = updatedLast;
+
+        // Smooth in-place update on canvas
+        if (candlestickSeriesRef.current) {
+          try {
+            candlestickSeriesRef.current.update({
+              time: updatedLast.time,
+              open: updatedLast.open,
+              high: updatedLast.high,
+              low: updatedLast.low,
+              close: updatedLast.close,
+            });
+          } catch {
+            // Safe catch
+          }
+        }
+
+        if (volumeSeriesRef.current) {
+          try {
+            const themeOpts = getChartThemeOptions(theme);
+            volumeSeriesRef.current.update({
+              time: updatedLast.time,
+              value: updatedLast.volume,
+              color: updatedLast.close >= updatedLast.open ? themeOpts.series.volumeUp : themeOpts.series.volumeDown,
+            });
+          } catch {
+            // Safe catch
+          }
+        }
+
+        return updated;
+      });
+    }, 1500);
+
+    return () => clearInterval(interval);
+  }, [theme]);
 
   // Handle Order Submit
   const handleExecuteOrder = (e: React.FormEvent) => {
@@ -570,311 +645,482 @@ export const ProTradingTerminal: React.FC<ProTradingTerminalProps> = ({
             }}
           >
             <div style={{ display: 'flex', gap: '12px' }}>
-              {['1D', '5D', '1M', '3M', '1Y', '5Y'].map(range => (
-                <span key={range} style={{ cursor: 'pointer', fontWeight: 600 }} className="groww-btn-secondary">
-                  {range}
+              {[
+                { range: '1D', tf: '5m' },
+                { range: '5D', tf: '15m' },
+                { range: '1M', tf: '1h' },
+                { range: '3M', tf: '1D' },
+                { range: '1Y', tf: '1D' },
+                { range: '5Y', tf: '1D' },
+              ].map(item => (
+                <span
+                  key={item.range}
+                  onClick={() => {
+                    setActiveTimeRange(item.range);
+                    setTimeframe(item.tf);
+                  }}
+                  style={{
+                    cursor: 'pointer',
+                    fontWeight: activeTimeRange === item.range ? 800 : 500,
+                    color: activeTimeRange === item.range ? GROWW_THEME.colors.green : GROWW_THEME.colors.textSecondary,
+                  }}
+                  className="groww-btn-secondary"
+                >
+                  {item.range}
                 </span>
               ))}
             </div>
-            <span>21:01:50 UTC+5:30 · % log auto</span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <span style={{ color: GROWW_THEME.colors.green, fontWeight: 700, fontSize: '0.72rem' }}>● LIVE TICKING</span>
+              <span>· % log auto</span>
+            </div>
           </div>
         </div>
 
-        {/* RIGHT SIDE PANEL DOCK */}
+        {/* RIGHT SIDE CONTAINER (DOCK CONTENT PANEL + VERTICAL TAB BAR) */}
         <div
           style={{
-            width: '380px',
-            backgroundColor: GROWW_THEME.colors.bgSurface,
-            borderLeft: `1px solid ${GROWW_THEME.colors.border}`,
             display: 'flex',
-            flexDirection: 'column',
+            borderLeft: `1px solid ${GROWW_THEME.colors.border}`,
+            backgroundColor: GROWW_THEME.colors.bgSurface,
           }}
         >
-          {/* Right Dock Header Navigation Tabs */}
+          {/* 1. DOCK CONTENT PANEL (Shows when a tab is active) */}
+          {activeDockTab && (
+            <div
+              style={{
+                width: '360px',
+                backgroundColor: GROWW_THEME.colors.bgSurface,
+                borderRight: `1px solid ${GROWW_THEME.colors.border}`,
+                display: 'flex',
+                flexDirection: 'column',
+                height: '100%',
+              }}
+            >
+              {/* Header Bar matching image: Grip dots + Title + Close Button */}
+              <div
+                style={{
+                  height: '42px',
+                  borderBottom: `1px solid ${GROWW_THEME.colors.border}`,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  padding: '0 12px 0 16px',
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <GripVertical size={16} color={GROWW_THEME.colors.textMuted} style={{ cursor: 'grab' }} />
+                  <span style={{ fontSize: '0.9rem', fontWeight: 700, color: GROWW_THEME.colors.textPrimary }}>
+                    {activeDockTab === 'chain' && 'Chain'}
+                    {activeDockTab === 'positions' && `Positions (${positions.length})`}
+                    {activeDockTab === 'orders' && `Orders (${orders.length})`}
+                    {activeDockTab === 'depth' && 'Depth'}
+                    {activeDockTab === 'balance' && 'Balance'}
+                    {activeDockTab === 'watchlist' && 'Watchlist'}
+                  </span>
+                </div>
+                <button
+                  onClick={() => setActiveDockTab(null)}
+                  style={{
+                    background: 'none',
+                    border: 'none',
+                    color: GROWW_THEME.colors.textMuted,
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    padding: '4px',
+                    borderRadius: '4px',
+                    transition: 'var(--transition-fast)',
+                  }}
+                  className="groww-btn-secondary"
+                  title="Close Panel"
+                >
+                  <X size={16} />
+                </button>
+              </div>
+
+              {/* Dock Content Body */}
+              <div style={{ flex: 1, overflowY: 'auto', padding: '16px' }}>
+                {/* TAB 1: OPTION CHAIN */}
+                {activeDockTab === 'chain' && (
+                  <div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+                      <span style={{ fontSize: '0.85rem', fontWeight: 700 }}>NIFTY Option Chain</span>
+                      <span style={{ fontSize: '0.75rem', color: GROWW_THEME.colors.green, fontWeight: 600 }}>04 Aug Expiry</span>
+                    </div>
+
+                    <div className="groww-table-wrapper">
+                      <table className="groww-table" style={{ fontSize: '0.8rem' }}>
+                        <thead>
+                          <tr>
+                            <th style={{ padding: '8px' }}>Call LTP</th>
+                            <th style={{ padding: '8px', textAlign: 'center' }}>Strike</th>
+                            <th style={{ padding: '8px', textAlign: 'right' }}>Put LTP</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {optionChain.slice(3, 11).map((opt: OptionStrikeData, idx: number) => {
+                            const isAtm = Math.abs(opt.strike - 24350) < 25;
+                            return (
+                              <tr key={idx} style={{ backgroundColor: isAtm ? 'rgba(0, 208, 156, 0.08)' : 'transparent' }}>
+                                <td style={{ padding: '8px', color: GROWW_THEME.colors.green, fontWeight: 600 }}>
+                                  ₹{opt.callLtp.toFixed(2)}
+                                </td>
+                                <td style={{ padding: '8px', textAlign: 'center', fontWeight: 700, fontFamily: 'var(--font-mono)' }}>
+                                  {opt.strike}
+                                </td>
+                                <td style={{ padding: '8px', textAlign: 'right', color: GROWW_THEME.colors.red, fontWeight: 600 }}>
+                                  ₹{opt.putLtp.toFixed(2)}
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                )}
+
+                {/* TAB 2: POSITIONS */}
+                {activeDockTab === 'positions' && (
+                  <div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px' }}>
+                      <span style={{ fontSize: '0.85rem', fontWeight: 700 }}>Open Paper Positions</span>
+                      <span style={{ fontSize: '0.85rem', fontWeight: 700, color: totalPnl >= 0 ? GROWW_THEME.colors.green : GROWW_THEME.colors.red }}>
+                        P&L: ₹{totalPnl.toFixed(2)}
+                      </span>
+                    </div>
+
+                    {positions.length === 0 ? (
+                      <div style={{ textAlign: 'center', padding: '32px 0', color: GROWW_THEME.colors.textMuted, fontSize: '0.85rem' }}>
+                        No open paper trading positions. Click BUY or SELL above to trade!
+                      </div>
+                    ) : (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                        {positions.map(pos => (
+                          <div
+                            key={pos.id}
+                            style={{
+                              backgroundColor: GROWW_THEME.colors.bgSurfaceHover,
+                              border: `1px solid ${GROWW_THEME.colors.border}`,
+                              borderRadius: '8px',
+                              padding: '12px',
+                            }}
+                          >
+                            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '6px' }}>
+                              <span style={{ fontWeight: 700, fontSize: '0.85rem' }}>{pos.symbol}</span>
+                              <span
+                                style={{
+                                  fontSize: '0.72rem',
+                                  fontWeight: 700,
+                                  padding: '2px 6px',
+                                  borderRadius: '4px',
+                                  backgroundColor: pos.side === 'BUY' ? GROWW_THEME.colors.greenBg : GROWW_THEME.colors.redBg,
+                                  color: pos.side === 'BUY' ? GROWW_THEME.colors.green : GROWW_THEME.colors.red,
+                                }}
+                              >
+                                {pos.side} {pos.qty} Qty
+                              </span>
+                            </div>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8rem', color: GROWW_THEME.colors.textSecondary, marginBottom: '8px' }}>
+                              <span>Entry: ₹{pos.entryPrice.toFixed(2)}</span>
+                              <span>LTP: ₹{pos.currentPrice.toFixed(2)}</span>
+                            </div>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                              <span style={{ fontWeight: 700, fontSize: '0.9rem', color: pos.pnl >= 0 ? GROWW_THEME.colors.green : GROWW_THEME.colors.red }}>
+                                ₹{pos.pnl.toFixed(2)} ({pos.pnlPercent.toFixed(2)}%)
+                              </span>
+                              <button
+                                onClick={() => closePosition(pos.id)}
+                                style={{
+                                  padding: '4px 10px',
+                                  borderRadius: '4px',
+                                  backgroundColor: GROWW_THEME.colors.redBg,
+                                  color: GROWW_THEME.colors.red,
+                                  border: `1px solid ${GROWW_THEME.colors.redBorder}`,
+                                  fontWeight: 600,
+                                  fontSize: '0.75rem',
+                                  cursor: 'pointer',
+                                }}
+                              >
+                                Close
+                              </button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* TAB 3: ORDERS */}
+                {activeDockTab === 'orders' && (
+                  <div>
+                    <span style={{ fontSize: '0.85rem', fontWeight: 700, display: 'block', marginBottom: '12px' }}>Executed Paper Orders</span>
+                    {orders.length === 0 ? (
+                      <div style={{ textAlign: 'center', padding: '32px 0', color: GROWW_THEME.colors.textMuted, fontSize: '0.85rem' }}>
+                        No order history recorded yet.
+                      </div>
+                    ) : (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                        {orders.map(ord => (
+                          <div
+                            key={ord.id}
+                            style={{
+                              backgroundColor: GROWW_THEME.colors.bgSurfaceHover,
+                              border: `1px solid ${GROWW_THEME.colors.border}`,
+                              borderRadius: '6px',
+                              padding: '10px 12px',
+                              fontSize: '0.8rem',
+                            }}
+                          >
+                            <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 700, marginBottom: '4px' }}>
+                              <span style={{ color: ord.side === 'BUY' ? GROWW_THEME.colors.green : GROWW_THEME.colors.red }}>
+                                {ord.side} {ord.qty} x {ord.symbol}
+                              </span>
+                              <span>₹{ord.price.toFixed(2)}</span>
+                            </div>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', color: GROWW_THEME.colors.textMuted, fontSize: '0.72rem' }}>
+                              <span>{ord.type} · {ord.status}</span>
+                              <span>{ord.timestamp}</span>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* TAB 4: DEPTH (LEVEL 2 ORDER BOOK) */}
+                {activeDockTab === 'depth' && (
+                  <div>
+                    <span style={{ fontSize: '0.85rem', fontWeight: 700, display: 'block', marginBottom: '12px' }}>Market Depth (Level 2)</span>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', fontSize: '0.78rem' }}>
+                      {/* Bids */}
+                      <div>
+                        <span style={{ fontWeight: 700, color: GROWW_THEME.colors.green, display: 'block', marginBottom: '6px' }}>Bids (Buy)</span>
+                        {[
+                          { price: livePrice - 0.5, qty: 1450 },
+                          { price: livePrice - 1.2, qty: 2890 },
+                          { price: livePrice - 2.0, qty: 4120 },
+                          { price: livePrice - 3.5, qty: 6500 },
+                        ].map((b, i) => (
+                          <div key={i} style={{ display: 'flex', justifyContent: 'space-between', padding: '3px 0' }}>
+                            <span>₹{b.price.toFixed(2)}</span>
+                            <span style={{ color: GROWW_THEME.colors.textMuted }}>{b.qty}</span>
+                          </div>
+                        ))}
+                      </div>
+
+                      {/* Asks */}
+                      <div>
+                        <span style={{ fontWeight: 700, color: GROWW_THEME.colors.red, display: 'block', marginBottom: '6px' }}>Asks (Sell)</span>
+                        {[
+                          { price: livePrice + 0.5, qty: 1120 },
+                          { price: livePrice + 1.1, qty: 3100 },
+                          { price: livePrice + 2.4, qty: 5400 },
+                          { price: livePrice + 3.8, qty: 8900 },
+                        ].map((a, i) => (
+                          <div key={i} style={{ display: 'flex', justifyContent: 'space-between', padding: '3px 0' }}>
+                            <span>₹{a.price.toFixed(2)}</span>
+                            <span style={{ color: GROWW_THEME.colors.textMuted }}>{a.qty}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* TAB 5: BALANCE */}
+                {activeDockTab === 'balance' && (
+                  <div>
+                    <span style={{ fontSize: '0.85rem', fontWeight: 700, display: 'block', marginBottom: '12px' }}>Paper Trading Wallet</span>
+                    <div
+                      style={{
+                        backgroundColor: GROWW_THEME.colors.bgSurfaceHover,
+                        border: `1px solid ${GROWW_THEME.colors.border}`,
+                        borderRadius: '8px',
+                        padding: '16px',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        gap: '12px',
+                      }}
+                    >
+                      <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                        <span style={{ color: GROWW_THEME.colors.textSecondary, fontSize: '0.8rem' }}>Total Funds</span>
+                        <span style={{ fontWeight: 700, fontSize: '0.95rem' }}>₹{balance.toLocaleString('en-IN', { maximumFractionDigits: 2 })}</span>
+                      </div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                        <span style={{ color: GROWW_THEME.colors.textSecondary, fontSize: '0.8rem' }}>Available Margin</span>
+                        <span style={{ fontWeight: 700, fontSize: '0.95rem', color: GROWW_THEME.colors.green }}>
+                          ₹{availableMargin.toLocaleString('en-IN', { maximumFractionDigits: 2 })}
+                        </span>
+                      </div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                        <span style={{ color: GROWW_THEME.colors.textSecondary, fontSize: '0.8rem' }}>Used Margin</span>
+                        <span style={{ fontWeight: 700, fontSize: '0.95rem' }}>₹{usedMargin.toLocaleString('en-IN', { maximumFractionDigits: 2 })}</span>
+                      </div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', paddingTop: '8px', borderTop: `1px solid ${GROWW_THEME.colors.border}` }}>
+                        <span style={{ color: GROWW_THEME.colors.textSecondary, fontSize: '0.8rem' }}>Total Unrealized P&L</span>
+                        <span style={{ fontWeight: 700, fontSize: '0.95rem', color: totalPnl >= 0 ? GROWW_THEME.colors.green : GROWW_THEME.colors.red }}>
+                          ₹{totalPnl.toFixed(2)}
+                        </span>
+                      </div>
+
+                      <button
+                        onClick={resetAccount}
+                        className="groww-btn groww-btn-secondary"
+                        style={{ marginTop: '8px', width: '100%', fontSize: '0.8rem', padding: '8px' }}
+                      >
+                        Reset Virtual Account (₹10 Lakhs)
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {/* TAB 6: WATCHLIST */}
+                {activeDockTab === 'watchlist' && (
+                  <div>
+                    <span style={{ fontSize: '0.85rem', fontWeight: 700, display: 'block', marginBottom: '12px' }}>Market Watchlist</span>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                      {[
+                        { sym: 'NIFTY 50', price: '24,383.60', chg: '+66.45 (+0.27%)', pos: true },
+                        { sym: 'BANK NIFTY', price: '52,140.35', chg: '+117.35 (+0.21%)', pos: true },
+                        { sym: 'FINNIFTY', price: '23,450.10', chg: '+45.20 (+0.19%)', pos: true },
+                        { sym: 'SENSEX', price: '78,094.64', chg: '+166.49 (+0.21%)', pos: true },
+                        { sym: 'RELIANCE', price: '₹3,024.50', chg: '+18.40 (+0.61%)', pos: true },
+                        { sym: 'TCS', price: '₹4,180.00', chg: '-12.50 (-0.30%)', pos: false },
+                      ].map((item, idx) => (
+                        <div
+                          key={idx}
+                          onClick={() => setActiveSymbol(item.sym)}
+                          style={{
+                            display: 'flex',
+                            justifyContent: 'space-between',
+                            alignItems: 'center',
+                            padding: '10px 12px',
+                            backgroundColor: GROWW_THEME.colors.bgSurfaceHover,
+                            border: `1px solid ${GROWW_THEME.colors.border}`,
+                            borderRadius: '6px',
+                            cursor: 'pointer',
+                          }}
+                        >
+                          <div>
+                            <div style={{ fontWeight: 700, fontSize: '0.85rem' }}>{item.sym}</div>
+                            <div style={{ fontSize: '0.72rem', color: GROWW_THEME.colors.textMuted }}>NSE Index</div>
+                          </div>
+                          <div style={{ textAlign: 'right' }}>
+                            <div style={{ fontWeight: 700, fontSize: '0.85rem' }}>{item.price}</div>
+                            <div style={{ fontSize: '0.72rem', color: item.pos ? GROWW_THEME.colors.green : GROWW_THEME.colors.red }}>
+                              {item.chg}
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* 2. RIGHT VERTICAL TOOLBAR NAVIGATION (Matches image layout) */}
           <div
             style={{
-              height: '42px',
-              borderBottom: `1px solid ${GROWW_THEME.colors.border}`,
+              width: '72px',
+              backgroundColor: GROWW_THEME.colors.bgSurface,
               display: 'flex',
+              flexDirection: 'column',
               alignItems: 'center',
-              padding: '0 8px',
-              gap: '4px',
-              overflowX: 'auto',
+              padding: '12px 0',
+              gap: '14px',
+              userSelect: 'none',
             }}
           >
             {[
-              { id: 'chain', label: 'Chain', icon: Layers },
-              { id: 'positions', label: `Positions (${positions.length})`, icon: Briefcase },
-              { id: 'orders', label: `Orders (${orders.length})`, icon: History },
-              { id: 'depth', label: 'Depth', icon: BarChart2 },
-              { id: 'balance', label: 'Balance', icon: Wallet },
+              { id: 'positions' as DockTab, label: 'Positions', icon: Briefcase, count: positions.length },
+              { id: 'chain' as DockTab, label: 'Chain', icon: Layers },
+              { id: 'orders' as DockTab, label: 'Orders', icon: History, count: orders.length },
+              { id: 'watchlist' as DockTab, label: 'Watchlist', icon: Search },
+              { id: 'depth' as DockTab, label: 'Depth', icon: BarChart2 },
+              { id: 'balance' as DockTab, label: 'Balance', icon: Wallet },
             ].map(tab => {
               const Icon = tab.icon;
               const isActive = activeDockTab === tab.id;
               return (
                 <button
                   key={tab.id}
-                  onClick={() => setActiveDockTab(tab.id as DockTab)}
+                  onClick={() => setActiveDockTab(prev => (prev === tab.id ? null : tab.id))}
                   style={{
-                    padding: '6px 10px',
-                    borderRadius: '6px',
-                    border: 'none',
-                    backgroundColor: isActive ? GROWW_THEME.colors.greenBg : 'transparent',
-                    color: isActive ? GROWW_THEME.colors.green : GROWW_THEME.colors.textSecondary,
-                    fontWeight: 600,
-                    fontSize: '0.78rem',
-                    cursor: 'pointer',
                     display: 'flex',
+                    flexDirection: 'column',
                     alignItems: 'center',
-                    gap: '5px',
-                    whiteSpace: 'nowrap',
+                    justifyContent: 'center',
+                    border: 'none',
+                    background: 'transparent',
+                    width: '100%',
+                    cursor: 'pointer',
+                    padding: '2px 0',
+                    outline: 'none',
                   }}
+                  title={tab.label}
                 >
-                  <Icon size={14} />
-                  <span>{tab.label}</span>
+                  {/* Rounded icon pill container like image */}
+                  <div
+                    style={{
+                      width: '38px',
+                      height: '38px',
+                      borderRadius: '10px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      backgroundColor: isActive ? GROWW_THEME.colors.greenBg : 'transparent',
+                      color: isActive ? GROWW_THEME.colors.green : GROWW_THEME.colors.textSecondary,
+                      transition: 'all 0.15s ease-in-out',
+                      position: 'relative',
+                    }}
+                  >
+                    <Icon size={18} />
+                    {tab.count !== undefined && tab.count > 0 && (
+                      <span
+                        style={{
+                          position: 'absolute',
+                          top: '2px',
+                          right: '2px',
+                          backgroundColor: GROWW_THEME.colors.green,
+                          color: '#0c0d10',
+                          fontSize: '0.65rem',
+                          fontWeight: 800,
+                          borderRadius: '50%',
+                          width: '14px',
+                          height: '14px',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                        }}
+                      >
+                        {tab.count}
+                      </span>
+                    )}
+                  </div>
+                  {/* Label under icon like image */}
+                  <span
+                    style={{
+                      fontSize: '0.72rem',
+                      fontWeight: isActive ? 700 : 500,
+                      marginTop: '3px',
+                      color: isActive ? GROWW_THEME.colors.green : GROWW_THEME.colors.textSecondary,
+                      textAlign: 'center',
+                      lineHeight: 1.1,
+                      whiteSpace: 'nowrap',
+                    }}
+                  >
+                    {tab.label}
+                  </span>
                 </button>
               );
             })}
-          </div>
-
-          {/* Dock Content Body */}
-          <div style={{ flex: 1, overflowY: 'auto', padding: '16px' }}>
-            {/* TAB 1: OPTION CHAIN */}
-            {activeDockTab === 'chain' && (
-              <div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
-                  <span style={{ fontSize: '0.85rem', fontWeight: 700 }}>NIFTY Option Chain</span>
-                  <span style={{ fontSize: '0.75rem', color: GROWW_THEME.colors.green, fontWeight: 600 }}>04 Aug Expiry</span>
-                </div>
-
-                <div className="groww-table-wrapper">
-                  <table className="groww-table" style={{ fontSize: '0.8rem' }}>
-                    <thead>
-                      <tr>
-                        <th style={{ padding: '8px' }}>Call LTP</th>
-                        <th style={{ padding: '8px', textAlign: 'center' }}>Strike</th>
-                        <th style={{ padding: '8px', textAlign: 'right' }}>Put LTP</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {optionChain.slice(3, 11).map((opt: OptionStrikeData, idx: number) => {
-                        const isAtm = Math.abs(opt.strike - 24350) < 25;
-                        return (
-                          <tr key={idx} style={{ backgroundColor: isAtm ? 'rgba(0, 208, 156, 0.08)' : 'transparent' }}>
-                            <td style={{ padding: '8px', color: GROWW_THEME.colors.green, fontWeight: 600 }}>
-                              ₹{opt.callLtp.toFixed(2)}
-                            </td>
-                            <td style={{ padding: '8px', textAlign: 'center', fontWeight: 700, fontFamily: 'var(--font-mono)' }}>
-                              {opt.strike}
-                            </td>
-                            <td style={{ padding: '8px', textAlign: 'right', color: GROWW_THEME.colors.red, fontWeight: 600 }}>
-                              ₹{opt.putLtp.toFixed(2)}
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            )}
-
-            {/* TAB 2: POSITIONS */}
-            {activeDockTab === 'positions' && (
-              <div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px' }}>
-                  <span style={{ fontSize: '0.85rem', fontWeight: 700 }}>Open Paper Positions</span>
-                  <span style={{ fontSize: '0.85rem', fontWeight: 700, color: totalPnl >= 0 ? GROWW_THEME.colors.green : GROWW_THEME.colors.red }}>
-                    P&L: ₹{totalPnl.toFixed(2)}
-                  </span>
-                </div>
-
-                {positions.length === 0 ? (
-                  <div style={{ textAlign: 'center', padding: '32px 0', color: GROWW_THEME.colors.textMuted, fontSize: '0.85rem' }}>
-                    No open paper trading positions. Click BUY or SELL above to trade!
-                  </div>
-                ) : (
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                    {positions.map(pos => (
-                      <div
-                        key={pos.id}
-                        style={{
-                          backgroundColor: GROWW_THEME.colors.bgSurfaceHover,
-                          border: `1px solid ${GROWW_THEME.colors.border}`,
-                          borderRadius: '8px',
-                          padding: '12px',
-                        }}
-                      >
-                        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '6px' }}>
-                          <span style={{ fontWeight: 700, fontSize: '0.85rem' }}>{pos.symbol}</span>
-                          <span
-                            style={{
-                              fontSize: '0.72rem',
-                              fontWeight: 700,
-                              padding: '2px 6px',
-                              borderRadius: '4px',
-                              backgroundColor: pos.side === 'BUY' ? GROWW_THEME.colors.greenBg : GROWW_THEME.colors.redBg,
-                              color: pos.side === 'BUY' ? GROWW_THEME.colors.green : GROWW_THEME.colors.red,
-                            }}
-                          >
-                            {pos.side} {pos.qty} Qty
-                          </span>
-                        </div>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8rem', color: GROWW_THEME.colors.textSecondary, marginBottom: '8px' }}>
-                          <span>Entry: ₹{pos.entryPrice.toFixed(2)}</span>
-                          <span>LTP: ₹{pos.currentPrice.toFixed(2)}</span>
-                        </div>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                          <span style={{ fontWeight: 700, fontSize: '0.9rem', color: pos.pnl >= 0 ? GROWW_THEME.colors.green : GROWW_THEME.colors.red }}>
-                            ₹{pos.pnl.toFixed(2)} ({pos.pnlPercent.toFixed(2)}%)
-                          </span>
-                          <button
-                            onClick={() => closePosition(pos.id)}
-                            style={{
-                              padding: '4px 10px',
-                              borderRadius: '4px',
-                              backgroundColor: GROWW_THEME.colors.redBg,
-                              color: GROWW_THEME.colors.red,
-                              border: `1px solid ${GROWW_THEME.colors.redBorder}`,
-                              fontWeight: 600,
-                              fontSize: '0.75rem',
-                              cursor: 'pointer',
-                            }}
-                          >
-                            Close
-                          </button>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            )}
-
-            {/* TAB 3: ORDERS */}
-            {activeDockTab === 'orders' && (
-              <div>
-                <span style={{ fontSize: '0.85rem', fontWeight: 700, display: 'block', marginBottom: '12px' }}>Executed Paper Orders</span>
-                {orders.length === 0 ? (
-                  <div style={{ textAlign: 'center', padding: '32px 0', color: GROWW_THEME.colors.textMuted, fontSize: '0.85rem' }}>
-                    No order history recorded yet.
-                  </div>
-                ) : (
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                    {orders.map(ord => (
-                      <div
-                        key={ord.id}
-                        style={{
-                          backgroundColor: GROWW_THEME.colors.bgSurfaceHover,
-                          border: `1px solid ${GROWW_THEME.colors.border}`,
-                          borderRadius: '6px',
-                          padding: '10px 12px',
-                          fontSize: '0.8rem',
-                        }}
-                      >
-                        <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 700, marginBottom: '4px' }}>
-                          <span style={{ color: ord.side === 'BUY' ? GROWW_THEME.colors.green : GROWW_THEME.colors.red }}>
-                            {ord.side} {ord.qty} x {ord.symbol}
-                          </span>
-                          <span>₹{ord.price.toFixed(2)}</span>
-                        </div>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', color: GROWW_THEME.colors.textMuted, fontSize: '0.72rem' }}>
-                          <span>{ord.type} · {ord.status}</span>
-                          <span>{ord.timestamp}</span>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            )}
-
-            {/* TAB 4: DEPTH (LEVEL 2 ORDER BOOK) */}
-            {activeDockTab === 'depth' && (
-              <div>
-                <span style={{ fontSize: '0.85rem', fontWeight: 700, display: 'block', marginBottom: '12px' }}>Market Depth (Level 2)</span>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', fontSize: '0.78rem' }}>
-                  {/* Bids */}
-                  <div>
-                    <span style={{ fontWeight: 700, color: GROWW_THEME.colors.green, display: 'block', marginBottom: '6px' }}>Bids (Buy)</span>
-                    {[
-                      { price: livePrice - 0.5, qty: 1450 },
-                      { price: livePrice - 1.2, qty: 2890 },
-                      { price: livePrice - 2.0, qty: 4120 },
-                      { price: livePrice - 3.5, qty: 6500 },
-                    ].map((b, i) => (
-                      <div key={i} style={{ display: 'flex', justifyContent: 'space-between', padding: '3px 0' }}>
-                        <span>₹{b.price.toFixed(2)}</span>
-                        <span style={{ color: GROWW_THEME.colors.textMuted }}>{b.qty}</span>
-                      </div>
-                    ))}
-                  </div>
-
-                  {/* Asks */}
-                  <div>
-                    <span style={{ fontWeight: 700, color: GROWW_THEME.colors.red, display: 'block', marginBottom: '6px' }}>Asks (Sell)</span>
-                    {[
-                      { price: livePrice + 0.5, qty: 1120 },
-                      { price: livePrice + 1.1, qty: 3100 },
-                      { price: livePrice + 2.4, qty: 5400 },
-                      { price: livePrice + 3.8, qty: 8900 },
-                    ].map((a, i) => (
-                      <div key={i} style={{ display: 'flex', justifyContent: 'space-between', padding: '3px 0' }}>
-                        <span>₹{a.price.toFixed(2)}</span>
-                        <span style={{ color: GROWW_THEME.colors.textMuted }}>{a.qty}</span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {/* TAB 5: BALANCE */}
-            {activeDockTab === 'balance' && (
-              <div>
-                <span style={{ fontSize: '0.85rem', fontWeight: 700, display: 'block', marginBottom: '12px' }}>Paper Trading Wallet</span>
-                <div
-                  style={{
-                    backgroundColor: GROWW_THEME.colors.bgSurfaceHover,
-                    border: `1px solid ${GROWW_THEME.colors.border}`,
-                    borderRadius: '8px',
-                    padding: '16px',
-                    display: 'flex',
-                    flexDirection: 'column',
-                    gap: '12px',
-                  }}
-                >
-                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                    <span style={{ color: GROWW_THEME.colors.textSecondary, fontSize: '0.8rem' }}>Total Funds</span>
-                    <span style={{ fontWeight: 700, fontSize: '0.95rem' }}>₹{balance.toLocaleString('en-IN', { maximumFractionDigits: 2 })}</span>
-                  </div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                    <span style={{ color: GROWW_THEME.colors.textSecondary, fontSize: '0.8rem' }}>Available Margin</span>
-                    <span style={{ fontWeight: 700, fontSize: '0.95rem', color: GROWW_THEME.colors.green }}>
-                      ₹{availableMargin.toLocaleString('en-IN', { maximumFractionDigits: 2 })}
-                    </span>
-                  </div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                    <span style={{ color: GROWW_THEME.colors.textSecondary, fontSize: '0.8rem' }}>Used Margin</span>
-                    <span style={{ fontWeight: 700, fontSize: '0.95rem' }}>₹{usedMargin.toLocaleString('en-IN', { maximumFractionDigits: 2 })}</span>
-                  </div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', paddingTop: '8px', borderTop: `1px solid ${GROWW_THEME.colors.border}` }}>
-                    <span style={{ color: GROWW_THEME.colors.textSecondary, fontSize: '0.8rem' }}>Total Unrealized P&L</span>
-                    <span style={{ fontWeight: 700, fontSize: '0.95rem', color: totalPnl >= 0 ? GROWW_THEME.colors.green : GROWW_THEME.colors.red }}>
-                      ₹{totalPnl.toFixed(2)}
-                    </span>
-                  </div>
-
-                  <button
-                    onClick={resetAccount}
-                    className="groww-btn groww-btn-secondary"
-                    style={{ marginTop: '8px', width: '100%', fontSize: '0.8rem', padding: '8px' }}
-                  >
-                    Reset Virtual Account (₹10 Lakhs)
-                  </button>
-                </div>
-              </div>
-            )}
           </div>
         </div>
       </div>

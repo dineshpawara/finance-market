@@ -100,6 +100,81 @@ export const generateCandleData = (basePrice: number = 24850, count: number = 12
   return candles;
 };
 
+/**
+ * Multi-day & Intraday Timeframe Candle Generator for TradingView lightweight charts
+ */
+export const generateTimeframeCandles = (
+  symbol: string = 'NIFTY 50',
+  timeframe: string = '5m',
+  basePriceInput?: number
+): CandleData[] => {
+  let basePrice = basePriceInput || INDEX_BASE_PRICES[symbol] || 24852.15;
+  if (symbol.includes('SENSEX')) basePrice = 81450.80;
+  else if (symbol.includes('BANK')) basePrice = 52180.40;
+  else if (symbol.includes('RELIANCE')) basePrice = 2984.50;
+  else if (symbol.includes('TCS')) basePrice = 4210.80;
+  else if (symbol.includes('HDFC')) basePrice = 1642.15;
+  else if (symbol.includes('INFY')) basePrice = 1785.40;
+
+  let intervalSeconds = 300; // default 5m
+  let count = 150;
+  let isDaily = false;
+
+  if (timeframe === '1m') { intervalSeconds = 60; count = 180; }
+  else if (timeframe === '3m') { intervalSeconds = 180; count = 150; }
+  else if (timeframe === '5m') { intervalSeconds = 300; count = 150; }
+  else if (timeframe === '15m') { intervalSeconds = 900; count = 120; }
+  else if (timeframe === '1h') { intervalSeconds = 3600; count = 120; }
+  else if (timeframe === '1D') { intervalSeconds = 86400; count = 180; isDaily = true; }
+
+  const candles: CandleData[] = [];
+  const now = new Date();
+
+  if (isDaily) {
+    let currentPrice = basePrice * 0.92;
+    const daysInMs = 24 * 60 * 60 * 1000;
+    for (let i = count; i >= 0; i--) {
+      const d = new Date(now.getTime() - i * daysInMs);
+      if (d.getDay() === 0 || d.getDay() === 6) continue;
+      const dateStr = d.toISOString().split('T')[0];
+      const volatility = currentPrice * 0.012;
+      const wave = Math.sin(i / 12) * (volatility * 0.7);
+      const change = (Math.random() - 0.485) * volatility + wave;
+
+      const open = Number(currentPrice.toFixed(2));
+      const close = Number(Math.max(10, open + change).toFixed(2));
+      const high = Number((Math.max(open, close) + Math.random() * volatility * 0.5).toFixed(2));
+      const low = Number((Math.min(open, close) - Math.random() * volatility * 0.5).toFixed(2));
+      const volume = Math.floor(Math.random() * 2000000) + 500000;
+
+      candles.push({ time: dateStr, open, high, low, close, volume });
+      currentPrice = close;
+    }
+  } else {
+    const nowSec = Math.floor(now.getTime() / 1000);
+    const currentIntervalSec = Math.floor(nowSec / intervalSeconds) * intervalSeconds;
+    let currentPrice = basePrice * 0.985;
+
+    for (let i = count; i >= 0; i--) {
+      const timeSec = currentIntervalSec - (i * intervalSeconds);
+      const volatility = currentPrice * (timeframe === '1h' ? 0.005 : 0.002);
+      const wave = Math.sin(i / 8) * (volatility * 0.5);
+      const change = (Math.random() - 0.49) * volatility + wave;
+
+      const open = Number(currentPrice.toFixed(2));
+      const close = Number(Math.max(10, open + change).toFixed(2));
+      const high = Number((Math.max(open, close) + Math.random() * volatility * 0.5).toFixed(2));
+      const low = Number((Math.min(open, close) - Math.random() * volatility * 0.5).toFixed(2));
+      const volume = Math.floor(Math.random() * 80000) + 12000;
+
+      candles.push({ time: timeSec as any, open, high, low, close, volume });
+      currentPrice = close;
+    }
+  }
+
+  return candles;
+};
+
 export const INDEX_BASE_PRICES: Record<string, number> = {
   'NIFTY 50': 24852.15,
   'SENSEX': 81450.80,
