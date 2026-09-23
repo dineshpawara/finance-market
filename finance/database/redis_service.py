@@ -27,11 +27,15 @@ class RedisService:
         """Attempts to connect to local Redis instance."""
         try:
             # pyrefly: ignore [missing-import]
+            import os
             import redis
-            client = redis.Redis(host="localhost", port=5540, db=0, decode_responses=True)
+            host = os.getenv("REDIS_HOST", "localhost")
+            port = int(os.getenv("REDIS_PORT", "6379"))
+            password = os.getenv("REDIS_PASSWORD", "adminDinesh")
+            client = redis.Redis(host=host, port=port, password=password, db=0, decode_responses=True, socket_timeout=2)
             client.ping()
             self.redis_client = client
-            logger.info("[Redis] Successfully connected to Redis database 'finance_market' on localhost:6379")
+            logger.info(f"[Redis] Successfully connected to Redis on {host}:{port}")
         except Exception as e:
             logger.info(f"[Redis] Redis server offline ({e}). Using in-memory tick cache fallback.")
             self.redis_client = None

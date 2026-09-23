@@ -15,10 +15,10 @@ logger = logging.getLogger(__name__)
 
 # Configurable DB Settings
 POSTGRES_DB = os.getenv("POSTGRES_DB", "finance_market")
-POSTGRES_USER = os.getenv("POSTGRES_USER", "postgres")
-POSTGRES_PASSWORD = os.getenv("POSTGRES_PASSWORD", "admin")
+POSTGRES_USER = os.getenv("POSTGRES_USER", "dinesh")
+POSTGRES_PASSWORD = os.getenv("POSTGRES_PASSWORD", "adminDinesh")
 POSTGRES_HOST = os.getenv("POSTGRES_HOST", "localhost")
-POSTGRES_PORT = int(os.getenv("POSTGRES_PORT", "6543"))
+POSTGRES_PORT = int(os.getenv("POSTGRES_PORT", "5432"))
 
 
 class DatabaseService:

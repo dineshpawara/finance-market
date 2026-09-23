@@ -1,5 +1,25 @@
 import asyncio
 import logging
+import os
+import sys
+from contextlib import asynccontextmanager
+from pathlib import Path
+
+# Ensure UTF-8 output encoding on Windows terminals to avoid charmap codec errors
+if sys.platform == "win32":
+    try:
+        if hasattr(sys.stdout, "reconfigure"):
+            sys.stdout.reconfigure(encoding="utf-8")
+        if hasattr(sys.stderr, "reconfigure"):
+            sys.stderr.reconfigure(encoding="utf-8")
+    except Exception:
+        pass
+
+# Ensure the finance directory is in sys.path so imports work from any working directory
+BASE_DIR = Path(__file__).resolve().parent
+if str(BASE_DIR) not in sys.path:
+    sys.path.insert(0, str(BASE_DIR))
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -13,10 +33,24 @@ logging.basicConfig(
 )
 logger = logging.getLogger("finance_backend")
 
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Initializes news pipeline in the background on server start and handles graceful shutdown."""
+    logger.info("FastAPI server starting up...")
+    try:
+        asyncio.create_task(asyncio.to_thread(news_service.run_news_pipeline))
+    except Exception as e:
+        logger.error(f"Error launching startup news pipeline: {e}")
+    yield
+    logger.info("FastAPI server shutting down...")
+
+
 app = FastAPI(
     title="Indian Stock Market Finance API",
     description="FastAPI Backend for Market Data, TimescaleDB Candles, Paper Trading Ledger & Redis Live Feeds",
-    version="1.0.0"
+    version="1.0.0",
+    lifespan=lifespan
 )
 
 # Configure CORS Middleware for Frontend Communication
@@ -33,16 +67,6 @@ app.include_router(news_router)
 app.include_router(market_router)
 app.include_router(trade_router)
 app.include_router(ws_router)
-
-
-@app.on_event("startup")
-async def startup_event():
-    """Initializes news pipeline in the background on server start."""
-    logger.info("FastAPI server starting up...")
-    try:
-        asyncio.create_task(asyncio.to_thread(news_service.run_news_pipeline))
-    except Exception as e:
-        logger.error(f"Error launching startup news pipeline: {e}")
 
 
 @app.get("/")
@@ -67,4 +91,4 @@ def read_root():
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)
+    uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True, app_dir=str(BASE_DIR))

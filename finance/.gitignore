@@ -4,6 +4,8 @@ Lib/
 Scripts/
 share/
 pyvenv.cfg
+.venv/
+.lock
 
 # Python cache & build files
 __pycache__/
