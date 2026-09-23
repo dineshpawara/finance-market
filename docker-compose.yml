@@ -1,0 +1,42 @@
+services:
+  # =========================
+  # TimescaleDB / PostgreSQL
+  # =========================
+  timescaledb:
+    image: timescale/timescaledb:latest-pg18
+    container_name: timescaledb
+    restart: unless-stopped
+
+    environment:
+      POSTGRES_USER: dinesh
+      POSTGRES_PASSWORD: adminDinesh
+      POSTGRES_DB: finance_market
+
+    ports:
+      - "5432:5432"
+
+    volumes:
+      - timescaledb_data:/var/lib/postgresql
+
+  # =========================
+  # Redis
+  # =========================
+  redis:
+    image: redis:latest
+    container_name: redis
+    restart: unless-stopped
+
+    command: redis-server --appendonly yes --requirepass adminDinesh
+
+    ports:
+      - "6379:6379"
+
+    volumes:
+      - redis_data:/data
+
+# =========================
+# Persistent Volumes
+# =========================
+volumes:
+  timescaledb_data:
+  redis_data:

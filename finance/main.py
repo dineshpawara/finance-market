@@ -20,6 +20,11 @@ BASE_DIR = Path(__file__).resolve().parent
 if str(BASE_DIR) not in sys.path:
     sys.path.insert(0, str(BASE_DIR))
 
+from dotenv import load_dotenv
+
+# Load environment variables from .env file
+load_dotenv(BASE_DIR / ".env")
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
