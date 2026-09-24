@@ -2,7 +2,7 @@ import os
 import sys
 from logging.config import fileConfig
 
-# Add project root to sys.path so packages (core, db, models) can be resolved
+# Add project root to sys.path so packages (core, database, models) can be resolved
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 from sqlalchemy import engine_from_config
@@ -11,8 +11,8 @@ from alembic import context
 
 # Import centralized settings & models
 from core.config import settings
-from db.base import Base
-from models.user import User  # Registers User model with Base.metadata
+from database.base import Base
+import models  # Registers all models (User, MasterKey, UserSession, PasswordHistory, AuditLog) with Base.metadata
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.

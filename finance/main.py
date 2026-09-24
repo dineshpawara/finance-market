@@ -53,7 +53,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="Indian Stock Market Finance API",
-    description="FastAPI Backend for Market Data, TimescaleDB Candles, Paper Trading Ledger & Redis Live Feeds",
+    description="Developed By Dinesh Pawara",
     version="1.0.0",
     lifespan=lifespan
 )
