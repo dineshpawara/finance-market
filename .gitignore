@@ -1,4 +1,4 @@
-Include/
+﻿Include/
 Lib/
 Scripts/
 share/
@@ -32,3 +32,9 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# secrets
+.env
+secrets/
+*.key
+*.pem

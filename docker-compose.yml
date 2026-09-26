@@ -1,42 +1,216 @@
+﻿# =====================================================================
+#  finance_market â€” Docker Compose stack
+#  Start:  docker compose up -d --build
+#  Stop:   docker compose down 
+# =====================================================================
+
+name: finance_market
+
+# ---- Common settings ----------------
+x-common: &common
+  restart: unless-stopped
+  security_opt:
+    - no-new-privileges:true
+  logging:
+    driver: json-file
+    options:
+      max-size: "10m"
+      max-file: "3"
+
 services:
-  # =========================
-  # TimescaleDB / PostgreSQL
-  # =========================
-  timescaledb:
-    image: timescale/timescaledb:latest-pg18
-    container_name: timescaledb
-    restart: unless-stopped
+  # -------------------------------------------------------------------
+  #  FRONTEND 
+  # -------------------------------------------------------------------
+  frontend:
+    <<: *common
+    build:
+      context: ./finance-ui
+    image: finance_market/frontend:1.0
+    container_name: finance_market_frontend
+    depends_on:
+      backend:
+        condition: service_healthy
+    ports:
+      - "${FRONTEND_PORT:-3000}:8080"
+    networks:
+      - app_net
 
+  # -------------------------------------------------------------------
+  # BACKEND
+  # -------------------------------------------------------------------
+  backend:
+    <<: *common
+    build:
+      context: ./finance
+    image: finance_market/backend:1.0
+    container_name: finance_market_backend
+    depends_on:
+      timescaledb:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
     environment:
-      POSTGRES_USER: dinesh
-      POSTGRES_PASSWORD: adminDinesh
-      POSTGRES_DB: finance_market
+      APP_ENV: production
+      POSTGRES_HOST: timescaledb
+      POSTGRES_PORT: "5432"
+      POSTGRES_DB: ${POSTGRES_DB:-finance_market}
+      POSTGRES_USER_FILE: /run/secrets/postgres_user
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_password
+      POSTGRES_SSLMODE: verify-full
+      POSTGRES_SSLROOTCERT: /run/secrets/tls_ca_crt
+      REDIS_HOST: redis
+      REDIS_PORT: "6379"
+      REDIS_PASSWORD_FILE: /run/secrets/redis_password
+      REDIS_TLS_CA_CERT: /run/secrets/tls_ca_crt
+    secrets:
+      - postgres_user
+      - postgres_password
+      - redis_password
+      - tls_ca_crt
+    healthcheck:
+      test: [ "CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')" ]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    networks:
+      - app_net
+      - data_net
 
-    ports:
-      - "5432:5432"
-
+  # -------------------------------------------------------------------
+  # TIMESCALEDB
+  # -------------------------------------------------------------------
+  timescaledb:
+    <<: *common
+    image: timescale/timescaledb:latest-pg16
+    container_name: finance_market_timescaledb
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-finance_market}
+      POSTGRES_USER_FILE: /run/secrets/postgres_user
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_password
+    secrets:
+      - postgres_user
+      - postgres_password
+      - tls_server_crt
+      - tls_server_key
+    # Private key ko postgres user ke ownership + 600 permission chahiye,
+    command:
+      - sh
+      - -c
+      - |
+        cp /run/secrets/tls_server_key /tmp/server.key
+        chown postgres:postgres /tmp/server.key
+        chmod 600 /tmp/server.key
+        exec docker-entrypoint.sh postgres \
+          -c ssl=on \
+          -c ssl_cert_file=/run/secrets/tls_server_crt \
+          -c ssl_key_file=/tmp/server.key \
+          -c ssl_min_protocol_version=TLSv1.2 \
+          -c hba_file=/etc/postgresql/pg_hba.conf
     volumes:
-      - timescaledb_data:/var/lib/postgresql
+      - timescaledb_data:/var/lib/postgresql/data
+      - ./config/pg_hba.conf:/etc/postgresql/pg_hba.conf:ro
+      - ./finance/database/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
+    healthcheck:
+      test: [ 'CMD-SHELL', 'pg_isready -U "$$(cat /run/secrets/postgres_user)" -d "$$POSTGRES_DB"' ]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    networks:
+      - data_net
 
-  # =========================
-  # Redis
-  # =========================
+  # -------------------------------------------------------------------
+  # REDIS
+  # -------------------------------------------------------------------
   redis:
-    image: redis:latest
-    container_name: redis
-    restart: unless-stopped
-
-    command: redis-server --appendonly yes --requirepass adminDinesh
-
-    ports:
-      - "6379:6379"
-
+    <<: *common
+    image: redis:7-bookworm
+    container_name: finance_market_redis
+    secrets:
+      - redis_password
+      - tls_server_crt
+      - tls_server_key
+      - tls_ca_crt
+    command:
+      - sh
+      - -c
+      - |
+        umask 077
+        printf '%s\n' \
+          'port 0' \
+          'tls-port 6379' \
+          'tls-cert-file /run/secrets/tls_server_crt' \
+          'tls-key-file /tmp/redis.key' \
+          'tls-ca-cert-file /run/secrets/tls_ca_crt' \
+          'tls-auth-clients no' \
+          'tls-protocols "TLSv1.2 TLSv1.3"' \
+          'appendonly yes' \
+          'dir /data' \
+          "requirepass $$(cat /run/secrets/redis_password)" > /tmp/redis.conf
+        cp /run/secrets/tls_server_key /tmp/redis.key
+        chown redis:redis /tmp/redis.conf /tmp/redis.key
+        exec gosu redis redis-server /tmp/redis.conf
     volumes:
       - redis_data:/data
+    healthcheck:
+      test: [ 'CMD-SHELL', 'REDISCLI_AUTH="$$(cat /run/secrets/redis_password)" redis-cli --tls --cacert /run/secrets/tls_ca_crt -h localhost ping | grep -q PONG' ]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+    networks:
+      - data_net
 
-# =========================
-# Persistent Volumes
-# =========================
+  # -------------------------------------------------------------------
+  # REDIS INSIGHT
+  # -------------------------------------------------------------------
+  redisinsight:
+    <<: *common
+    image: redis/redisinsight:latest
+    container_name: finance_market_redisinsight
+    depends_on:
+      redis:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:${REDISINSIGHT_PORT:-5540}:5540"
+    volumes:
+      - redisinsight_data:/data
+    networks:
+      - app_net
+      - data_net
+
+# ---- Secrets------------------
+secrets:
+  postgres_user:
+    file: ./secrets/postgres_user.txt
+  postgres_password:
+    file: ./secrets/postgres_password.txt
+  redis_password:
+    file: ./secrets/redis_password.txt
+  tls_ca_crt:
+    file: ./secrets/tls/ca.crt
+  tls_server_crt:
+    file: ./secrets/tls/server.crt
+  tls_server_key:
+    file: ./secrets/tls/server.key
+
+# ---- Networks ------------------------------------------
+networks:
+  app_net:
+    name: finance_market_app_net
+    driver: bridge
+  data_net:
+    name: finance_market_data_net
+    driver: bridge
+    internal: true
+
+# ---- Volumes -----------------
 volumes:
   timescaledb_data:
+    name: finance_market_timescaledb_data
   redis_data:
+    name: finance_market_redis_data
+  redisinsight_data:
+    name: finance_market_redisinsight_data
+
