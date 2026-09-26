@@ -21,3 +21,8 @@ news_cache.json
 .env
 .env.*
 !.env.example
+
+.env
+secrets/
+*.key
+*.pem

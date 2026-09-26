@@ -1,4 +1,4 @@
-"""
+﻿"""
 Database Service - PostgreSQL & TimescaleDB Manager for finance_market
 ========================================================================
 Handles user accounts, virtual wallets, paper trades, transactions,
@@ -17,12 +17,13 @@ logger = logging.getLogger(__name__)
 try:
     from core.config import settings
     POSTGRES_DB = settings.POSTGRES_DB
-    POSTGRES_USER = settings.POSTGRES_USER
-    POSTGRES_PASSWORD = settings.POSTGRES_PASSWORD
+    POSTGRES_USER = getattr(settings, "effective_postgres_user", None) or settings.POSTGRES_USER
+    POSTGRES_PASSWORD = getattr(settings, "effective_postgres_password", None) or settings.POSTGRES_PASSWORD
     POSTGRES_HOST = settings.POSTGRES_HOST
     POSTGRES_PORT = settings.POSTGRES_PORT
     DEFAULT_WALLET_BALANCE = getattr(settings, "DEFAULT_WALLET_BALANCE", 1000000.00)
 except Exception:
+    settings = None
     POSTGRES_DB = os.getenv("POSTGRES_DB")
     POSTGRES_USER = os.getenv("POSTGRES_USER")
     POSTGRES_PASSWORD = os.getenv("POSTGRES_PASSWORD")
@@ -43,7 +44,7 @@ class DatabaseService:
         self._init_db()
 
     def _init_db(self):
-        """Initializes PostgreSQL connection if credentials provided in .env, and ensures fallback schema."""
+        """Initializes PostgreSQL connection if credentials provided in .env/secrets, and ensures fallback schema."""
         self._init_sqlite_schema()
 
         if not (POSTGRES_DB and POSTGRES_USER and POSTGRES_PASSWORD):
@@ -53,14 +54,20 @@ class DatabaseService:
 
         try:
             import psycopg2
-            self.pg_conn = psycopg2.connect(
-                dbname=POSTGRES_DB,
-                user=POSTGRES_USER,
-                password=POSTGRES_PASSWORD,
-                host=POSTGRES_HOST,
-                port=POSTGRES_PORT,
-                connect_timeout=3
-            )
+            connect_kwargs = {
+                "dbname": POSTGRES_DB,
+                "user": POSTGRES_USER,
+                "password": POSTGRES_PASSWORD,
+                "host": POSTGRES_HOST,
+                "port": POSTGRES_PORT,
+                "connect_timeout": 5
+            }
+            if settings and getattr(settings, "POSTGRES_SSLMODE", None):
+                connect_kwargs["sslmode"] = settings.POSTGRES_SSLMODE
+            if settings and getattr(settings, "POSTGRES_SSLROOTCERT", None):
+                connect_kwargs["sslrootcert"] = settings.POSTGRES_SSLROOTCERT
+
+            self.pg_conn = psycopg2.connect(**connect_kwargs)
             self.use_postgres = True
             logger.info(f"[DB] Successfully connected to PostgreSQL database '{POSTGRES_DB}'")
         except Exception as e:
@@ -137,7 +144,21 @@ class DatabaseService:
         logger.info("[DB] SQLite database schema initialized with default demo user.")
 
     def get_wallet_balance(self, user_id: int = 1) -> float:
-        """Returns virtual wallet balance for user."""
+        """Returns virtual wallet balance for user with PostgreSQL & SQLite fallback."""
+        if self.use_postgres and self.pg_conn:
+            try:
+                with self.pg_conn.cursor() as cur:
+                    cur.execute("SELECT balance FROM wallets WHERE user_id = %s;", (user_id,))
+                    row = cur.fetchone()
+                    if row:
+                        return float(row[0])
+            except Exception as e:
+                logger.warning(f"[DB] PostgreSQL query failed in get_wallet_balance ({e}). Falling back to SQLite.")
+                try:
+                    self.pg_conn.rollback()
+                except Exception:
+                    pass
+
         conn = sqlite3.connect(self.sqlite_db_path)
         cursor = conn.cursor()
         cursor.execute("SELECT balance FROM wallets WHERE user_id = ?", (user_id,))
@@ -158,12 +179,55 @@ class DatabaseService:
         stop_loss: float = 0.0,
         target: float = 0.0
     ) -> Dict[str, Any]:
-        """Atomically executes a paper trade and updates user wallet balance."""
-        conn = sqlite3.connect(self.sqlite_db_path)
-        cursor = conn.cursor()
-
+        """Atomically executes a paper trade and updates user wallet balance (PostgreSQL & SQLite fallback)."""
         trade_id = f"trade_{int(datetime.now(timezone.utc).timestamp() * 1000)}"
         total_cost = price * quantity
+
+        if self.use_postgres and self.pg_conn:
+            try:
+                with self.pg_conn.cursor() as cur:
+                    cur.execute("SELECT balance FROM wallets WHERE user_id = %s FOR UPDATE;", (user_id,))
+                    row = cur.fetchone()
+                    current_balance = float(row[0]) if row else DEFAULT_WALLET_BALANCE
+
+                    if transaction_type == "BUY" and current_balance < total_cost:
+                        return {"status": "error", "message": "Insufficient wallet funds for this order."}
+
+                    new_balance = current_balance - total_cost if transaction_type == "BUY" else current_balance + total_cost
+
+                    cur.execute("""
+                        INSERT INTO paper_trades (id, user_id, symbol, instrument_type, strike_price, expiry, transaction_type, quantity, entry_price, status, stop_loss, target)
+                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, 'OPEN', %s, %s);
+                    """, (trade_id, user_id, symbol, instrument_type, strike_price, expiry, transaction_type, quantity, price, stop_loss, target))
+
+                    cur.execute("UPDATE wallets SET balance = %s, updated_at = CURRENT_TIMESTAMP WHERE user_id = %s;", (new_balance, user_id))
+
+                    cur.execute("""
+                        INSERT INTO transactions (user_id, trade_id, type, amount, balance_after)
+                        VALUES (%s, %s, %s, %s, %s);
+                    """, (user_id, trade_id, transaction_type, total_cost, new_balance))
+
+                    self.pg_conn.commit()
+
+                    return {
+                        "status": "success",
+                        "trade_id": trade_id,
+                        "symbol": symbol,
+                        "transaction_type": transaction_type,
+                        "quantity": quantity,
+                        "entry_price": price,
+                        "wallet_balance": new_balance
+                    }
+            except Exception as e:
+                logger.warning(f"[DB] PostgreSQL execute_paper_trade failed ({e}). Rolling back and falling back to SQLite.")
+                try:
+                    self.pg_conn.rollback()
+                except Exception:
+                    pass
+
+        # SQLite Fallback
+        conn = sqlite3.connect(self.sqlite_db_path)
+        cursor = conn.cursor()
 
         cursor.execute("SELECT balance FROM wallets WHERE user_id = ?", (user_id,))
         row = cursor.fetchone()
@@ -175,16 +239,13 @@ class DatabaseService:
 
         new_balance = current_balance - total_cost if transaction_type == "BUY" else current_balance + total_cost
 
-        # Insert Trade
         cursor.execute("""
             INSERT INTO paper_trades (id, user_id, symbol, instrument_type, strike_price, expiry, transaction_type, quantity, entry_price, status, stop_loss, target)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'OPEN', ?, ?)
         """, (trade_id, user_id, symbol, instrument_type, strike_price, expiry, transaction_type, quantity, price, stop_loss, target))
 
-        # Update Wallet
         cursor.execute("UPDATE wallets SET balance = ?, updated_at = CURRENT_TIMESTAMP WHERE user_id = ?", (new_balance, user_id))
 
-        # Add Ledger Transaction
         cursor.execute("""
             INSERT INTO transactions (user_id, trade_id, type, amount, balance_after)
             VALUES (?, ?, ?, ?, ?)
@@ -204,7 +265,40 @@ class DatabaseService:
         }
 
     def get_user_trades(self, user_id: int = 1) -> List[Dict[str, Any]]:
-        """Fetches all open and closed trades for a user."""
+        """Fetches all open and closed trades for a user with PostgreSQL & SQLite fallback."""
+        if self.use_postgres and self.pg_conn:
+            try:
+                with self.pg_conn.cursor() as cur:
+                    cur.execute("""
+                        SELECT id, symbol, instrument_type, strike_price, expiry, transaction_type, quantity, entry_price, entry_time, status, stop_loss, target, pnl
+                        FROM paper_trades WHERE user_id = %s ORDER BY entry_time DESC;
+                    """, (user_id,))
+                    rows = cur.fetchall()
+                    trades = []
+                    for r in rows:
+                        trades.append({
+                            "id": r[0],
+                            "symbol": r[1],
+                            "instrument_type": r[2],
+                            "strike_price": float(r[3]) if r[3] is not None else 0.0,
+                            "expiry": r[4] or "",
+                            "transaction_type": r[5],
+                            "quantity": int(r[6]),
+                            "entry_price": float(r[7]),
+                            "entry_time": r[8].isoformat() if hasattr(r[8], "isoformat") else str(r[8]),
+                            "status": r[9],
+                            "stop_loss": float(r[10]) if r[10] is not None else 0.0,
+                            "target": float(r[11]) if r[11] is not None else 0.0,
+                            "pnl": float(r[12]) if r[12] is not None else 0.0
+                        })
+                    return trades
+            except Exception as e:
+                logger.warning(f"[DB] PostgreSQL query failed in get_user_trades ({e}). Falling back to SQLite.")
+                try:
+                    self.pg_conn.rollback()
+                except Exception:
+                    pass
+
         conn = sqlite3.connect(self.sqlite_db_path)
         cursor = conn.cursor()
         cursor.execute("""
@@ -236,3 +330,4 @@ class DatabaseService:
 
 # Global singleton instance
 db_service = DatabaseService()
+

@@ -74,6 +74,12 @@ app.include_router(trade_router)
 app.include_router(ws_router)
 
 
+@app.get("/health")
+def health_check():
+    """Healthcheck endpoint for Docker Compose and container orchestrators."""
+    return {"status": "healthy", "service": "finance_market_backend"}
+
+
 @app.get("/")
 def read_root():
     return {

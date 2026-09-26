@@ -1,4 +1,4 @@
--- Finance Market PostgreSQL Database Schema
+﻿-- Finance Market PostgreSQL Database Schema
 -- Database: finance_market
 
 -- Enable TimescaleDB Extension if available
@@ -69,3 +69,8 @@ BEGIN
         PERFORM create_hypertable('candles', 'time', if_not_exists => TRUE);
     END IF;
 END $$;
+
+-- Default demo user and initial wallet for paper trading
+INSERT INTO users (id, email, name) VALUES (1, 'trader@finance.market', 'Pro Trader') ON CONFLICT (id) DO NOTHING;
+INSERT INTO wallets (user_id, balance) VALUES (1, 1000000.00) ON CONFLICT (user_id) DO NOTHING;
+SELECT setval('users_id_seq', (SELECT GREATEST(MAX(id), 1) FROM users));

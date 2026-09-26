@@ -35,16 +35,18 @@ class RedisService:
         self._connect_redis()
 
     def _connect_redis(self):
-        """Attempts to connect to local Redis instance using centralized Settings."""
+        """Attempts to connect to Redis instance using centralized Settings with TLS and Docker secrets."""
         if settings is not None:
             host = settings.REDIS_HOST
             port = settings.REDIS_PORT
-            password = settings.REDIS_PASSWORD or None
+            password = getattr(settings, "effective_redis_password", None) or settings.REDIS_PASSWORD or None
+            tls_ca_cert = getattr(settings, "REDIS_TLS_CA_CERT", None)
         else:
             import os
             host = os.getenv("REDIS_HOST", "localhost")
             port = int(os.getenv("REDIS_PORT", "6379"))
             password = os.getenv("REDIS_PASSWORD") or None
+            tls_ca_cert = os.getenv("REDIS_TLS_CA_CERT") or None
 
         if not redis:
             logger.info("[Redis] redis library not installed. Using in-memory tick cache fallback.")
@@ -52,17 +54,22 @@ class RedisService:
             return
 
         try:
-            client = redis.Redis(
-                host=host,
-                port=port,
-                password=password,
-                db=0,
-                decode_responses=True,
-                socket_timeout=2
-            )
+            redis_kwargs = {
+                "host": host,
+                "port": port,
+                "password": password,
+                "db": 0,
+                "decode_responses": True,
+                "socket_timeout": 3
+            }
+            if tls_ca_cert:
+                redis_kwargs["ssl"] = True
+                redis_kwargs["ssl_ca_certs"] = tls_ca_cert
+
+            client = redis.Redis(**redis_kwargs)
             client.ping()
             self.redis_client = client
-            logger.info(f"[Redis] Successfully connected to Redis on {host}:{port}")
+            logger.info(f"[Redis] Successfully connected to Redis on {host}:{port} (TLS: {bool(tls_ca_cert)})")
         except Exception as e:
             logger.info(f"[Redis] Redis server offline or unavailable ({e}). Using in-memory tick cache fallback.")
             self.redis_client = None
