@@ -1,0 +1,68 @@
+name: CD Production
+
+on:
+  push:
+    branches: [main]
+
+concurrency:
+  group: cd-production
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+  packages: write
+
+jobs:
+  release-and-deploy:
+    name: Production Deployment & Tagging
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Generate Release Tag
+        id: tagger
+        run: |
+          VERSION="v$(date +'%Y.%m.%d-%H%M')"
+          echo "RELEASE_TAG=$VERSION" >> $GITHUB_OUTPUT
+          echo "Triggered deployment for release: $VERSION"
+
+      # -------------------------------------------------------------
+      # TODO: Step 1 - Build & Push Docker Images to Container Registry
+      # -------------------------------------------------------------
+      # - name: Log in to GitHub Container Registry (GHCR)
+      #   uses: docker/login-action@v3
+      #   with:
+      #     registry: ghcr.io
+      #     username: ${{ github.actor }}
+      #     password: ${{ secrets.GITHUB_TOKEN }}
+      #
+      # - name: Build and push backend image
+      #   uses: docker/build-push-action@v5
+      #   with:
+      #     context: ./backend
+      #     push: true
+      #     tags: ghcr.io/${{ github.repository }}/backend:${{ steps.tagger.outputs.RELEASE_TAG }}
+
+      # -------------------------------------------------------------
+      # TODO: Step 2 - Deploy to Server / Cloud Provider
+      # -------------------------------------------------------------
+      # - name: SSH Deploy to VPS / Cloud Server
+      #   uses: appleboy/ssh-action@master
+      #   with:
+      #     host: ${{ secrets.PROD_SERVER_HOST }}
+      #     username: ${{ secrets.PROD_SERVER_USER }}
+      #     key: ${{ secrets.PROD_SSH_PRIVATE_KEY }}
+      #     script: |
+      #       cd /opt/finance-market
+      #       docker compose pull
+      #       docker compose up -d --remove-orphans
+
+      - name: Deployment Placeholder
+        run: |
+          echo "CD pipeline skeleton reached for branch 'main'."
+          echo "Configure registry credentials and SSH secrets when ready to go live."

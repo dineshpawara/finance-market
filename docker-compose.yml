@@ -1,4 +1,4 @@
-﻿# =====================================================================
+# =====================================================================
 #  finance_market â€” Docker Compose stack
 #  Start:  docker compose up -d --build
 #  Stop:   docker compose down 
@@ -24,7 +24,7 @@ services:
   frontend:
     <<: *common
     build:
-      context: ./finance-ui
+      context: ./frontend
     image: finance_market/frontend:1.0
     container_name: finance_market_frontend
     depends_on:
@@ -41,7 +41,7 @@ services:
   backend:
     <<: *common
     build:
-      context: ./finance
+      context: ./backend
     image: finance_market/backend:1.0
     container_name: finance_market_backend
     depends_on:
@@ -110,7 +110,7 @@ services:
     volumes:
       - timescaledb_data:/var/lib/postgresql/data
       - ./config/pg_hba.conf:/etc/postgresql/pg_hba.conf:ro
-      - ./finance/database/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
+      - ./backend/database/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
     healthcheck:
       test: [ 'CMD-SHELL', 'pg_isready -U "$$(cat /run/secrets/postgres_user)" -d "$$POSTGRES_DB"' ]
       interval: 10s
