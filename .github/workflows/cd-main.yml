@@ -9,14 +9,14 @@ concurrency:
   cancel-in-progress: false
 
 permissions:
-  contents: write
-  packages: write
+  contents: read
 
 jobs:
   release-and-deploy:
     name: Production Deployment & Tagging
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    environment: production
 
     steps:
       - name: Checkout code
@@ -24,15 +24,23 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Generate Release Tag
-        id: tagger
+      - name: Deployment Skeleton & Pre-flight Check
         run: |
-          VERSION="v$(date +'%Y.%m.%d-%H%M')"
-          echo "RELEASE_TAG=$VERSION" >> $GITHUB_OUTPUT
-          echo "Triggered deployment for release: $VERSION"
+          echo "CD pipeline skeleton reached for branch 'main'."
+          echo "Run after Backend CI & Frontend CI pass on main."
 
       # -------------------------------------------------------------
-      # TODO: Step 1 - Build & Push Docker Images to Container Registry
+      # TODO: Step 1 - Release Tagging (add permissions: contents: write when enabling)
+      # -------------------------------------------------------------
+      # - name: Create GitHub Release
+      #   env:
+      #     GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      #   run: |
+      #     TAG="v$(date +'%Y.%m.%d-%H%M')"
+      #     gh release create "$TAG" --generate-notes --title "Release $TAG"
+
+      # -------------------------------------------------------------
+      # TODO: Step 2 - Build & Push Docker Images to GHCR
       # -------------------------------------------------------------
       # - name: Log in to GitHub Container Registry (GHCR)
       #   uses: docker/login-action@v3
@@ -46,13 +54,13 @@ jobs:
       #   with:
       #     context: ./backend
       #     push: true
-      #     tags: ghcr.io/${{ github.repository }}/backend:${{ steps.tagger.outputs.RELEASE_TAG }}
+      #     tags: ghcr.io/${{ github.repository }}/backend:latest
 
       # -------------------------------------------------------------
-      # TODO: Step 2 - Deploy to Server / Cloud Provider
+      # TODO: Step 3 - Deploy to VPS / Cloud Server (using pinned action)
       # -------------------------------------------------------------
       # - name: SSH Deploy to VPS / Cloud Server
-      #   uses: appleboy/ssh-action@master
+      #   uses: appleboy/ssh-action@v1.2.0
       #   with:
       #     host: ${{ secrets.PROD_SERVER_HOST }}
       #     username: ${{ secrets.PROD_SERVER_USER }}
@@ -61,8 +69,3 @@ jobs:
       #       cd /opt/finance-market
       #       docker compose pull
       #       docker compose up -d --remove-orphans
-
-      - name: Deployment Placeholder
-        run: |
-          echo "CD pipeline skeleton reached for branch 'main'."
-          echo "Configure registry credentials and SSH secrets when ready to go live."

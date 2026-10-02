@@ -1,6 +1,5 @@
 import asyncio
 import logging
-import os
 import sys
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -32,10 +31,7 @@ from routes import news_router, market_router, trade_router, ws_router
 from services import news_service
 
 # Setup Logging
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
-)
+logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
 logger = logging.getLogger("finance_backend")
 
 
@@ -55,7 +51,7 @@ app = FastAPI(
     title="Indian Stock Market Finance API",
     description="Developed By Dinesh Pawara",
     version="1.0.0",
-    lifespan=lifespan
+    lifespan=lifespan,
 )
 
 # Configure CORS Middleware for Frontend Communication
@@ -95,11 +91,12 @@ def read_root():
             "/api/v1/wallet",
             "/api/v1/trades/order",
             "/api/v1/trades",
-            "/ws/live"
-        ]
+            "/ws/live",
+        ],
     }
 
 
 if __name__ == "__main__":
     import uvicorn
+
     uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True, app_dir=str(BASE_DIR))

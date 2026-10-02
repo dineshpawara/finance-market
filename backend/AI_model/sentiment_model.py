@@ -26,12 +26,9 @@ def load_finbert_model():
     try:
         # pyrefly: ignore [missing-import]
         from transformers import pipeline
+
         logger.info("Loading FinBERT sentiment model (ProsusAI/finbert)...")
-        _sentiment_pipeline = pipeline(
-            task="text-classification",
-            model="ProsusAI/finbert",
-            truncation=True
-        )
+        _sentiment_pipeline = pipeline(task="text-classification", model="ProsusAI/finbert", truncation=True)
         logger.info("FinBERT model loaded successfully.")
     except Exception as e:
         logger.warning(f"Could not load FinBERT pipeline ({e}). Falling back to heuristic sentiment scoring.")
@@ -47,21 +44,56 @@ def classify_headline_fallback(title: str) -> Dict[str, Any]:
     """
     title_lower = title.lower()
     bullish_keywords = [
-        "surge", "jump", "rally", "gain", "rise", "profit", "bullish", "record high",
-        "beat", "growth", "buy", "outperform", "soar", "up", "boost", "climb", "dividend"
+        "surge",
+        "jump",
+        "rally",
+        "gain",
+        "rise",
+        "profit",
+        "bullish",
+        "record high",
+        "beat",
+        "growth",
+        "buy",
+        "outperform",
+        "soar",
+        "up",
+        "boost",
+        "climb",
+        "dividend",
     ]
     bearish_keywords = [
-        "fall", "drop", "plunge", "slump", "loss", "bearish", "down", "decline",
-        "sell", "underperform", "cut", "inflation", "crash", "fear", "crisis", "default"
+        "fall",
+        "drop",
+        "plunge",
+        "slump",
+        "loss",
+        "bearish",
+        "down",
+        "decline",
+        "sell",
+        "underperform",
+        "cut",
+        "inflation",
+        "crash",
+        "fear",
+        "crisis",
+        "default",
     ]
 
     bull_score = sum(1 for w in bullish_keywords if w in title_lower)
     bear_score = sum(1 for w in bearish_keywords if w in title_lower)
 
     if bull_score > bear_score:
-        return {"sentiment": "positive", "confidence": round(0.65 + min(bull_score * 0.1, 0.3), 3)}
+        return {
+            "sentiment": "positive",
+            "confidence": round(0.65 + min(bull_score * 0.1, 0.3), 3),
+        }
     elif bear_score > bull_score:
-        return {"sentiment": "negative", "confidence": round(0.65 + min(bear_score * 0.1, 0.3), 3)}
+        return {
+            "sentiment": "negative",
+            "confidence": round(0.65 + min(bear_score * 0.1, 0.3), 3),
+        }
     else:
         return {"sentiment": "neutral", "confidence": 0.70}
 

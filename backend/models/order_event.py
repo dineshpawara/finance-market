@@ -23,46 +23,25 @@ class OrderEvent(Base):
     """
     Order event entity mapped to 'order_events' table in PostgreSQL.
     """
+
     __tablename__ = "order_events"
 
-    id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True),
-        primary_key=True,
-        default=uuid.uuid4,
-        index=True
-    )
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, index=True)
     order_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("orders.id", ondelete="CASCADE"),
         nullable=False,
-        index=True
+        index=True,
     )
-    event_type: Mapped[str] = mapped_column(
-        String(30),
-        nullable=False,
-        index=True
-    )
-    status: Mapped[str] = mapped_column(
-        String(30),
-        nullable=False
-    )
-    details: Mapped[Optional[Dict[str, Any]]] = mapped_column(
-        JSONB,
-        nullable=True,
-        server_default=text("'{}'::jsonb")
-    )
+    event_type: Mapped[str] = mapped_column(String(30), nullable=False, index=True)
+    status: Mapped[str] = mapped_column(String(30), nullable=False)
+    details: Mapped[Optional[Dict[str, Any]]] = mapped_column(JSONB, nullable=True, server_default=text("'{}'::jsonb"))
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True),
-        server_default=func.now(),
-        nullable=False,
-        index=True
+        DateTime(timezone=True), server_default=func.now(), nullable=False, index=True
     )
 
     # Relationships
-    order: Mapped["Order"] = relationship(
-        "Order",
-        back_populates="events"
-    )
+    order: Mapped["Order"] = relationship("Order", back_populates="events")
 
     def __repr__(self) -> str:
         return (

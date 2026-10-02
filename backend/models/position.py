@@ -10,14 +10,7 @@ from decimal import Decimal
 from typing import List, TYPE_CHECKING
 import uuid
 
-from sqlalchemy import (
-    BigInteger,
-    Numeric,
-    DateTime,
-    ForeignKey,
-    UniqueConstraint,
-    func
-)
+from sqlalchemy import BigInteger, Numeric, DateTime, ForeignKey, UniqueConstraint, func
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -33,74 +26,46 @@ class Position(Base):
     """
     Position entity mapped to 'positions' table in PostgreSQL.
     """
+
     __tablename__ = "positions"
 
-    id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True),
-        primary_key=True,
-        default=uuid.uuid4,
-        index=True
-    )
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, index=True)
     account_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("trading_accounts.id", ondelete="CASCADE"),
         nullable=False,
-        index=True
+        index=True,
     )
     instrument_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("instruments.id", ondelete="RESTRICT"),
         nullable=False,
-        index=True
+        index=True,
     )
-    quantity: Mapped[int] = mapped_column(
-        BigInteger,
-        default=0,
-        server_default="0",
-        nullable=False
-    )
+    quantity: Mapped[int] = mapped_column(BigInteger, default=0, server_default="0", nullable=False)
     average_price: Mapped[Decimal] = mapped_column(
-        Numeric(20, 8),
-        default=Decimal("0.0"),
-        server_default="0.0",
-        nullable=False
+        Numeric(20, 8), default=Decimal("0.0"), server_default="0.0", nullable=False
     )
     realized_pnl: Mapped[Decimal] = mapped_column(
-        Numeric(20, 8),
-        default=Decimal("0.0"),
-        server_default="0.0",
-        nullable=False
+        Numeric(20, 8), default=Decimal("0.0"), server_default="0.0", nullable=False
     )
     unrealized_pnl: Mapped[Decimal] = mapped_column(
-        Numeric(20, 8),
-        default=Decimal("0.0"),
-        server_default="0.0",
-        nullable=False
+        Numeric(20, 8), default=Decimal("0.0"), server_default="0.0", nullable=False
     )
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         server_default=func.now(),
         onupdate=func.now(),
-        nullable=False
+        nullable=False,
     )
 
-    __table_args__ = (
-        UniqueConstraint("account_id", "instrument_id", name="uq_positions_account_instrument"),
-    )
+    __table_args__ = (UniqueConstraint("account_id", "instrument_id", name="uq_positions_account_instrument"),)
 
     # Relationships
-    account: Mapped["TradingAccount"] = relationship(
-        "TradingAccount",
-        back_populates="positions"
-    )
-    instrument: Mapped["Instrument"] = relationship(
-        "Instrument",
-        back_populates="positions"
-    )
+    account: Mapped["TradingAccount"] = relationship("TradingAccount", back_populates="positions")
+    instrument: Mapped["Instrument"] = relationship("Instrument", back_populates="positions")
     events: Mapped[List["PositionEvent"]] = relationship(
-        "PositionEvent",
-        back_populates="position",
-        cascade="all, delete-orphan"
+        "PositionEvent", back_populates="position", cascade="all, delete-orphan"
     )
 
     @property

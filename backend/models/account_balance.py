@@ -24,57 +24,38 @@ class AccountBalance(Base):
     """
     Account balance entity mapped to 'account_balances' table in PostgreSQL.
     """
+
     __tablename__ = "account_balances"
 
-    id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True),
-        primary_key=True,
-        default=uuid.uuid4,
-        index=True
-    )
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, index=True)
     account_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("trading_accounts.id", ondelete="CASCADE"),
         unique=True,
         nullable=False,
-        index=True
+        index=True,
     )
     available_balance: Mapped[Decimal] = mapped_column(
-        Numeric(20, 8),
-        default=Decimal("0.0"),
-        server_default="0.0",
-        nullable=False
+        Numeric(20, 8), default=Decimal("0.0"), server_default="0.0", nullable=False
     )
     blocked_balance: Mapped[Decimal] = mapped_column(
-        Numeric(20, 8),
-        default=Decimal("0.0"),
-        server_default="0.0",
-        nullable=False
+        Numeric(20, 8), default=Decimal("0.0"), server_default="0.0", nullable=False
     )
     realized_pnl: Mapped[Decimal] = mapped_column(
-        Numeric(20, 8),
-        default=Decimal("0.0"),
-        server_default="0.0",
-        nullable=False
+        Numeric(20, 8), default=Decimal("0.0"), server_default="0.0", nullable=False
     )
     unrealized_pnl: Mapped[Decimal] = mapped_column(
-        Numeric(20, 8),
-        default=Decimal("0.0"),
-        server_default="0.0",
-        nullable=False
+        Numeric(20, 8), default=Decimal("0.0"), server_default="0.0", nullable=False
     )
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         server_default=func.now(),
         onupdate=func.now(),
-        nullable=False
+        nullable=False,
     )
 
     # Relationships
-    account: Mapped["TradingAccount"] = relationship(
-        "TradingAccount",
-        back_populates="balance"
-    )
+    account: Mapped["TradingAccount"] = relationship("TradingAccount", back_populates="balance")
 
     @property
     def total_balance(self) -> Decimal:

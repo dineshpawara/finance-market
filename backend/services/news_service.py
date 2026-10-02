@@ -33,14 +33,11 @@ RSS_FEEDS = {
     "LiveMint - Markets": "https://www.livemint.com/rss/markets",
     "LiveMint - Industry": "https://www.livemint.com/rss/industry",
     "CNBC-TV18 - Market": "https://www.cnbctv18.com/commonfeeds/v1/cne/rss/market.xml",
-
     # --- Global cues ---
     "CNBC - World": "https://www.cnbc.com/id/100727362/device/rss/rss.html",
-
     # --- Reuters / Bloomberg workaround via Google News ---
     "Reuters (via Google News)": "https://news.google.com/rss/search?q=when:24h+allinurl:reuters.com+(markets+OR+RBI+OR+India+OR+Fed)&hl=en-IN&gl=IN&ceid=IN:en",
     "Bloomberg (via Google News)": "https://news.google.com/rss/search?q=when:24h+allinurl:bloomberg.com+(India+OR+markets+OR+Fed+OR+RBI)&hl=en-IN&gl=IN&ceid=IN:en",
-
     # --- Keyword-based catch-all ---
     "Google News - Nifty50/Sensex": "https://news.google.com/rss/search?q=when:24h+(Nifty50+OR+Sensex+OR+%22Indian+stock+market%22)&hl=en-IN&gl=IN&ceid=IN:en",
     "Google News - RBI/FII": "https://news.google.com/rss/search?q=when:24h+(RBI+policy+OR+FII+outflow+OR+FII+inflow)&hl=en-IN&gl=IN&ceid=IN:en",
@@ -64,7 +61,11 @@ class NewsService:
                 if feed.bozo and not feed.entries:
                     results[name] = {"status": "DEAD", "url": url, "entries": 0}
                 else:
-                    results[name] = {"status": "OK", "url": url, "entries": len(feed.entries)}
+                    results[name] = {
+                        "status": "OK",
+                        "url": url,
+                        "entries": len(feed.entries),
+                    }
             except Exception as e:
                 results[name] = {"status": "ERROR", "url": url, "error": str(e)}
         return results
@@ -76,14 +77,9 @@ class NewsService:
             try:
                 feed = feedparser.parse(url)
                 for entry in feed.entries[:30]:  # Top 30 items per source
-                    raw_struct = getattr(entry, "published_parsed", None) or \
-                                 getattr(entry, "updated_parsed", None)
-                    
-                    epoch_utc = (
-                        calendar.timegm(raw_struct)
-                        if isinstance(raw_struct, time.struct_time)
-                        else None
-                    )
+                    raw_struct = getattr(entry, "published_parsed", None) or getattr(entry, "updated_parsed", None)
+
+                    epoch_utc = calendar.timegm(raw_struct) if isinstance(raw_struct, time.struct_time) else None
 
                     title = str(entry.get("title", "")).strip()
                     link = str(entry.get("link", ""))
@@ -92,17 +88,20 @@ class NewsService:
                     # Clean HTML tags from summary if present
                     if "<" in summary and ">" in summary:
                         import re
+
                         summary = re.sub(r"<[^>]+>", "", summary).strip()
 
-                    all_news.append({
-                        "id": f"{source_name}_{hash(title)}",
-                        "source": source_name,
-                        "title": title,
-                        "summary": summary[:250] + "..." if len(summary) > 250 else summary,
-                        "link": link,
-                        "published": published,
-                        "published_epoch_utc": epoch_utc,
-                    })
+                    all_news.append(
+                        {
+                            "id": f"{source_name}_{hash(title)}",
+                            "source": source_name,
+                            "title": title,
+                            "summary": summary[:250] + "..." if len(summary) > 250 else summary,
+                            "link": link,
+                            "published": published,
+                            "published_epoch_utc": epoch_utc,
+                        }
+                    )
             except Exception as e:
                 logger.error(f"[RSS] Failed to fetch from {source_name}: {e}")
         return all_news

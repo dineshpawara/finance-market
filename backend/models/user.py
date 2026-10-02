@@ -27,68 +27,42 @@ class User(Base):
     """
     User entity mapped to 'users' table in PostgreSQL.
     """
+
     __tablename__ = "users"
 
-    id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True),
-        primary_key=True,
-        default=uuid.uuid4,
-        index=True
-    )
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, index=True)
     name: Mapped[str] = mapped_column(String(100), nullable=False)
     password_hash: Mapped[str] = mapped_column(String(255), nullable=False)
     password_changed_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True),
-        nullable=False,
-        server_default=func.now()
+        DateTime(timezone=True), nullable=False, server_default=func.now()
     )
     password_expires_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         nullable=False,
-        server_default=text("now() + interval '30 days'")
+        server_default=text("now() + interval '30 days'"),
     )
-    is_active: Mapped[bool] = mapped_column(
-        Boolean,
-        default=True,
-        server_default="true",
-        nullable=False
-    )
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True),
-        server_default=func.now(),
-        nullable=False
-    )
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, server_default="true", nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         server_default=func.now(),
         onupdate=func.now(),
-        nullable=False
+        nullable=False,
     )
 
     # Relationships to child security & session entities
     master_keys: Mapped[List["MasterKey"]] = relationship(
-        "MasterKey",
-        back_populates="user",
-        cascade="all, delete-orphan"
+        "MasterKey", back_populates="user", cascade="all, delete-orphan"
     )
     sessions: Mapped[List["UserSession"]] = relationship(
-        "UserSession",
-        back_populates="user",
-        cascade="all, delete-orphan"
+        "UserSession", back_populates="user", cascade="all, delete-orphan"
     )
     password_history: Mapped[List["PasswordHistory"]] = relationship(
-        "PasswordHistory",
-        back_populates="user",
-        cascade="all, delete-orphan"
+        "PasswordHistory", back_populates="user", cascade="all, delete-orphan"
     )
-    audit_logs: Mapped[List["AuditLog"]] = relationship(
-        "AuditLog",
-        back_populates="user"
-    )
+    audit_logs: Mapped[List["AuditLog"]] = relationship("AuditLog", back_populates="user")
     trading_accounts: Mapped[List["TradingAccount"]] = relationship(
-        "TradingAccount",
-        back_populates="user",
-        cascade="all, delete-orphan"
+        "TradingAccount", back_populates="user", cascade="all, delete-orphan"
     )
 
     def set_password(self, new_hash: str) -> None:

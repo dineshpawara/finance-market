@@ -14,9 +14,9 @@ from core.config import settings
 # Create engine using centralized settings
 engine = create_engine(
     settings.sync_database_url,
-    pool_pre_ping=True,      # Automatically reconnects dropped DB connections
-    pool_size=10,            # Maintains 10 persistent connections in pool
-    max_overflow=20          # Allows up to 20 temporary burst connections
+    pool_pre_ping=True,  # Automatically reconnects dropped DB connections
+    pool_size=10,  # Maintains 10 persistent connections in pool
+    max_overflow=20,  # Allows up to 20 temporary burst connections
 )
 
 # Session factory for handling unit-of-work transactions
