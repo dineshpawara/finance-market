@@ -118,7 +118,7 @@ export const fetchSentimentSummary = async (): Promise<SentimentSummaryResponse>
       const data: SentimentSummaryResponse = await res.json();
       return data;
     }
-  } catch (err) {
+  } catch {
     console.warn('[NewsAPI] Sentiment summary backend offline. Using calculated score.');
   }
 

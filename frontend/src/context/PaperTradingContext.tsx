@@ -48,7 +48,7 @@ export const PaperTradingProvider: React.FC<{ children: React.ReactNode }> = ({ 
       try {
         const parsed = JSON.parse(saved);
         return parsed.balance ?? INITIAL_BALANCE;
-      } catch (e) {
+      } catch {
         return INITIAL_BALANCE;
       }
     }
@@ -61,7 +61,7 @@ export const PaperTradingProvider: React.FC<{ children: React.ReactNode }> = ({ 
       try {
         const parsed = JSON.parse(saved);
         return parsed.positions ?? [];
-      } catch (e) {
+      } catch {
         return [];
       }
     }
@@ -74,7 +74,7 @@ export const PaperTradingProvider: React.FC<{ children: React.ReactNode }> = ({ 
       try {
         const parsed = JSON.parse(saved);
         return parsed.orders ?? [];
-      } catch (e) {
+      } catch {
         return [];
       }
     }

@@ -167,7 +167,7 @@ export const generateTimeframeCandles = (
       const low = Number((Math.min(open, close) - Math.random() * volatility * 0.5).toFixed(2));
       const volume = Math.floor(Math.random() * 80000) + 12000;
 
-      candles.push({ time: timeSec as any, open, high, low, close, volume });
+      candles.push({ time: String(timeSec), open, high, low, close, volume });
       currentPrice = close;
     }
   }
