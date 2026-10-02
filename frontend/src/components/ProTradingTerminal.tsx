@@ -20,7 +20,7 @@ import {
   GripVertical
 } from 'lucide-react';
 import { createChart, ColorType, CandlestickSeries, HistogramSeries, LineSeries } from 'lightweight-charts';
-import type { IChartApi } from 'lightweight-charts';
+import type { IChartApi, ISeriesApi } from 'lightweight-charts';
 import { GROWW_THEME, getChartThemeOptions } from '../utils/theme';
 import { useTheme } from '../context/ThemeContext';
 import { usePaperTrading } from '../context/PaperTradingContext';
@@ -75,8 +75,8 @@ export const ProTradingTerminal: React.FC<ProTradingTerminalProps> = ({
 
   const chartContainerRef = useRef<HTMLDivElement>(null);
   const chartApiRef = useRef<IChartApi | null>(null);
-  const candlestickSeriesRef = useRef<any>(null);
-  const volumeSeriesRef = useRef<any>(null);
+  const candlestickSeriesRef = useRef<ISeriesApi<'Candlestick'> | null>(null);
+  const volumeSeriesRef = useRef<ISeriesApi<'Histogram'> | null>(null);
 
   // Multi-day / Multi-timeframe Candles State
   const [candles, setCandles] = useState<CandleData[]>(() => generateTimeframeCandles(initialSymbol, '5m'));

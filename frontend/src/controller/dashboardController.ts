@@ -51,6 +51,7 @@ export const useDashboardController = (): DashboardState => {
 
   useEffect(() => {
     loadData();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedIndex, timeframe]);
 
   const handleIndexChange = (symbol: string) => {

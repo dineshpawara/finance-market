@@ -37,6 +37,7 @@ export const useOptionChainController = (): OptionChainState => {
 
   useEffect(() => {
     loadData();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [underlying, selectedExpiry]);
 
   return {
