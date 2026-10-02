@@ -1,11 +1,10 @@
 name: Backend CI
 
 on:
+  # NOTE: paths filter is omitted on pull_request to prevent deadlock with GitHub required status checks.
+  # Later, path filtering can be optimized using a single 'ci-gate' job with dorny/paths-filter.
   pull_request:
     branches: [develop, main]
-    paths:
-      - "backend/**"
-      - ".github/workflows/ci-backend.yml"
   push:
     branches: [develop, main]
     paths:
@@ -21,7 +20,7 @@ permissions:
 
 jobs:
   backend-ci:
-    name: Lint, Check & Test
+    name: Backend CI
     runs-on: ubuntu-latest
     timeout-minutes: 15
 
@@ -61,7 +60,7 @@ jobs:
       - name: Install uv
         uses: astral-sh/setup-uv@v5
         with:
-          version: "latest"
+          version: "0.5.24"
           enable-cache: true
           cache-dependency-glob: "backend/uv.lock"
 
@@ -69,14 +68,25 @@ jobs:
         run: uv python install 3.12
 
       - name: Install dependencies
-        run: uv sync --frozen
+        run: uv sync --locked
 
-      - name: Lint with Ruff
-        run: |
-          uv run ruff check . || uvx ruff check . || echo "Ruff check completed"
+      - name: Ruff lint
+        run: uv run ruff check .
+
+      - name: Ruff format check
+        run: uv run ruff format --check .
 
       - name: Check code compilation
         run: uv run python -m compileall -q .
+
+      - name: Run Alembic migrations
+        env:
+          POSTGRES_HOST: localhost
+          POSTGRES_PORT: 5432
+          POSTGRES_USER: test_user
+          POSTGRES_PASSWORD: test_password
+          POSTGRES_DB: test_finance_market
+        run: uv run alembic upgrade head
 
       - name: Run pytest
         env:
@@ -87,9 +97,4 @@ jobs:
           POSTGRES_DB: test_finance_market
           REDIS_HOST: localhost
           REDIS_PORT: 6379
-        run: |
-          if [ -d "tests" ]; then
-            uv run pytest -v
-          else
-            echo "No backend tests/ directory found yet. Skipping pytest."
-          fi
+        run: uv run pytest -v

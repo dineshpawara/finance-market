@@ -1,4 +1,4 @@
-﻿"""
+"""
 Core Application Configuration
 ==============================
 Centralized configuration management powered by Pydantic Settings.
@@ -28,6 +28,7 @@ class Settings(BaseSettings):
     """
     Application Settings loaded dynamically from .env file or Docker secrets.
     """
+
     # Application settings
     ENVIRONMENT: str = "development"
     DEBUG: bool = True
@@ -88,7 +89,7 @@ class Settings(BaseSettings):
                 host=self.POSTGRES_HOST,
                 port=self.POSTGRES_PORT,
                 database=self.POSTGRES_DB,
-                query=query
+                query=query,
             ).render_as_string(hide_password=False)
 
         if self.DATABASE_URL:
@@ -107,7 +108,7 @@ class Settings(BaseSettings):
                 host=self.POSTGRES_HOST,
                 port=self.POSTGRES_PORT,
                 database=self.POSTGRES_DB,
-                query=query
+                query=query,
             ).render_as_string(hide_password=False)
         raise ValueError(
             "Database configuration missing! Please ensure POSTGRES_USER/POSTGRES_USER_FILE and POSTGRES_PASSWORD/POSTGRES_PASSWORD_FILE are defined."
@@ -141,13 +142,8 @@ class Settings(BaseSettings):
     # CORS
     CORS_ORIGINS: str = "http://localhost:5173,http://127.0.0.1:5173,http://localhost:3000"
 
-    model_config = SettingsConfigDict(
-        env_file=str(BASE_DIR / ".env"),
-        env_file_encoding="utf-8",
-        extra="ignore"
-    )
+    model_config = SettingsConfigDict(env_file=str(BASE_DIR / ".env"), env_file_encoding="utf-8", extra="ignore")
 
 
 # Global singleton instance of Settings
 settings = Settings()
-

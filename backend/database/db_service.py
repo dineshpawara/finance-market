@@ -1,4 +1,4 @@
-﻿"""
+"""
 Database Service - PostgreSQL & TimescaleDB Manager for finance_market
 ========================================================================
 Handles user accounts, virtual wallets, paper trades, transactions,
@@ -8,7 +8,7 @@ and TimescaleDB historical candle queries.
 import os
 import sqlite3
 import logging
-from typing import Dict, List, Any, Optional
+from typing import Dict, List, Any
 from datetime import datetime, timezone
 
 logger = logging.getLogger(__name__)
@@ -16,6 +16,7 @@ logger = logging.getLogger(__name__)
 # Configurable DB Settings strictly from centralized Settings without exposing credentials in code
 try:
     from core.config import settings
+
     POSTGRES_DB = settings.POSTGRES_DB
     POSTGRES_USER = getattr(settings, "effective_postgres_user", None) or settings.POSTGRES_USER
     POSTGRES_PASSWORD = getattr(settings, "effective_postgres_password", None) or settings.POSTGRES_PASSWORD
@@ -54,13 +55,14 @@ class DatabaseService:
 
         try:
             import psycopg2
+
             connect_kwargs = {
                 "dbname": POSTGRES_DB,
                 "user": POSTGRES_USER,
                 "password": POSTGRES_PASSWORD,
                 "host": POSTGRES_HOST,
                 "port": POSTGRES_PORT,
-                "connect_timeout": 5
+                "connect_timeout": 5,
             }
             if settings and getattr(settings, "POSTGRES_SSLMODE", None):
                 connect_kwargs["sslmode"] = settings.POSTGRES_SSLMODE
@@ -136,8 +138,13 @@ class DatabaseService:
         """)
 
         # Ensure default demo user exists
-        cursor.execute("INSERT OR IGNORE INTO users (id, email, name) VALUES (1, 'trader@finance.market', 'Pro Trader')")
-        cursor.execute("INSERT OR IGNORE INTO wallets (user_id, balance) VALUES (1, ?)", (DEFAULT_WALLET_BALANCE,))
+        cursor.execute(
+            "INSERT OR IGNORE INTO users (id, email, name) VALUES (1, 'trader@finance.market', 'Pro Trader')"
+        )
+        cursor.execute(
+            "INSERT OR IGNORE INTO wallets (user_id, balance) VALUES (1, ?)",
+            (DEFAULT_WALLET_BALANCE,),
+        )
 
         conn.commit()
         conn.close()
@@ -177,7 +184,7 @@ class DatabaseService:
         strike_price: float = 0.0,
         expiry: str = "",
         stop_loss: float = 0.0,
-        target: float = 0.0
+        target: float = 0.0,
     ) -> Dict[str, Any]:
         """Atomically executes a paper trade and updates user wallet balance (PostgreSQL & SQLite fallback)."""
         trade_id = f"trade_{int(datetime.now(timezone.utc).timestamp() * 1000)}"
@@ -186,26 +193,55 @@ class DatabaseService:
         if self.use_postgres and self.pg_conn:
             try:
                 with self.pg_conn.cursor() as cur:
-                    cur.execute("SELECT balance FROM wallets WHERE user_id = %s FOR UPDATE;", (user_id,))
+                    cur.execute(
+                        "SELECT balance FROM wallets WHERE user_id = %s FOR UPDATE;",
+                        (user_id,),
+                    )
                     row = cur.fetchone()
                     current_balance = float(row[0]) if row else DEFAULT_WALLET_BALANCE
 
                     if transaction_type == "BUY" and current_balance < total_cost:
-                        return {"status": "error", "message": "Insufficient wallet funds for this order."}
+                        return {
+                            "status": "error",
+                            "message": "Insufficient wallet funds for this order.",
+                        }
 
-                    new_balance = current_balance - total_cost if transaction_type == "BUY" else current_balance + total_cost
+                    new_balance = (
+                        current_balance - total_cost if transaction_type == "BUY" else current_balance + total_cost
+                    )
 
-                    cur.execute("""
+                    cur.execute(
+                        """
                         INSERT INTO paper_trades (id, user_id, symbol, instrument_type, strike_price, expiry, transaction_type, quantity, entry_price, status, stop_loss, target)
                         VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, 'OPEN', %s, %s);
-                    """, (trade_id, user_id, symbol, instrument_type, strike_price, expiry, transaction_type, quantity, price, stop_loss, target))
+                    """,
+                        (
+                            trade_id,
+                            user_id,
+                            symbol,
+                            instrument_type,
+                            strike_price,
+                            expiry,
+                            transaction_type,
+                            quantity,
+                            price,
+                            stop_loss,
+                            target,
+                        ),
+                    )
 
-                    cur.execute("UPDATE wallets SET balance = %s, updated_at = CURRENT_TIMESTAMP WHERE user_id = %s;", (new_balance, user_id))
+                    cur.execute(
+                        "UPDATE wallets SET balance = %s, updated_at = CURRENT_TIMESTAMP WHERE user_id = %s;",
+                        (new_balance, user_id),
+                    )
 
-                    cur.execute("""
+                    cur.execute(
+                        """
                         INSERT INTO transactions (user_id, trade_id, type, amount, balance_after)
                         VALUES (%s, %s, %s, %s, %s);
-                    """, (user_id, trade_id, transaction_type, total_cost, new_balance))
+                    """,
+                        (user_id, trade_id, transaction_type, total_cost, new_balance),
+                    )
 
                     self.pg_conn.commit()
 
@@ -216,10 +252,12 @@ class DatabaseService:
                         "transaction_type": transaction_type,
                         "quantity": quantity,
                         "entry_price": price,
-                        "wallet_balance": new_balance
+                        "wallet_balance": new_balance,
                     }
             except Exception as e:
-                logger.warning(f"[DB] PostgreSQL execute_paper_trade failed ({e}). Rolling back and falling back to SQLite.")
+                logger.warning(
+                    f"[DB] PostgreSQL execute_paper_trade failed ({e}). Rolling back and falling back to SQLite."
+                )
                 try:
                     self.pg_conn.rollback()
                 except Exception:
@@ -235,21 +273,45 @@ class DatabaseService:
 
         if transaction_type == "BUY" and current_balance < total_cost:
             conn.close()
-            return {"status": "error", "message": "Insufficient wallet funds for this order."}
+            return {
+                "status": "error",
+                "message": "Insufficient wallet funds for this order.",
+            }
 
         new_balance = current_balance - total_cost if transaction_type == "BUY" else current_balance + total_cost
 
-        cursor.execute("""
+        cursor.execute(
+            """
             INSERT INTO paper_trades (id, user_id, symbol, instrument_type, strike_price, expiry, transaction_type, quantity, entry_price, status, stop_loss, target)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'OPEN', ?, ?)
-        """, (trade_id, user_id, symbol, instrument_type, strike_price, expiry, transaction_type, quantity, price, stop_loss, target))
+        """,
+            (
+                trade_id,
+                user_id,
+                symbol,
+                instrument_type,
+                strike_price,
+                expiry,
+                transaction_type,
+                quantity,
+                price,
+                stop_loss,
+                target,
+            ),
+        )
 
-        cursor.execute("UPDATE wallets SET balance = ?, updated_at = CURRENT_TIMESTAMP WHERE user_id = ?", (new_balance, user_id))
+        cursor.execute(
+            "UPDATE wallets SET balance = ?, updated_at = CURRENT_TIMESTAMP WHERE user_id = ?",
+            (new_balance, user_id),
+        )
 
-        cursor.execute("""
+        cursor.execute(
+            """
             INSERT INTO transactions (user_id, trade_id, type, amount, balance_after)
             VALUES (?, ?, ?, ?, ?)
-        """, (user_id, trade_id, transaction_type, total_cost, new_balance))
+        """,
+            (user_id, trade_id, transaction_type, total_cost, new_balance),
+        )
 
         conn.commit()
         conn.close()
@@ -261,7 +323,7 @@ class DatabaseService:
             "transaction_type": transaction_type,
             "quantity": quantity,
             "entry_price": price,
-            "wallet_balance": new_balance
+            "wallet_balance": new_balance,
         }
 
     def get_user_trades(self, user_id: int = 1) -> List[Dict[str, Any]]:
@@ -269,28 +331,33 @@ class DatabaseService:
         if self.use_postgres and self.pg_conn:
             try:
                 with self.pg_conn.cursor() as cur:
-                    cur.execute("""
+                    cur.execute(
+                        """
                         SELECT id, symbol, instrument_type, strike_price, expiry, transaction_type, quantity, entry_price, entry_time, status, stop_loss, target, pnl
                         FROM paper_trades WHERE user_id = %s ORDER BY entry_time DESC;
-                    """, (user_id,))
+                    """,
+                        (user_id,),
+                    )
                     rows = cur.fetchall()
                     trades = []
                     for r in rows:
-                        trades.append({
-                            "id": r[0],
-                            "symbol": r[1],
-                            "instrument_type": r[2],
-                            "strike_price": float(r[3]) if r[3] is not None else 0.0,
-                            "expiry": r[4] or "",
-                            "transaction_type": r[5],
-                            "quantity": int(r[6]),
-                            "entry_price": float(r[7]),
-                            "entry_time": r[8].isoformat() if hasattr(r[8], "isoformat") else str(r[8]),
-                            "status": r[9],
-                            "stop_loss": float(r[10]) if r[10] is not None else 0.0,
-                            "target": float(r[11]) if r[11] is not None else 0.0,
-                            "pnl": float(r[12]) if r[12] is not None else 0.0
-                        })
+                        trades.append(
+                            {
+                                "id": r[0],
+                                "symbol": r[1],
+                                "instrument_type": r[2],
+                                "strike_price": float(r[3]) if r[3] is not None else 0.0,
+                                "expiry": r[4] or "",
+                                "transaction_type": r[5],
+                                "quantity": int(r[6]),
+                                "entry_price": float(r[7]),
+                                "entry_time": r[8].isoformat() if hasattr(r[8], "isoformat") else str(r[8]),
+                                "status": r[9],
+                                "stop_loss": float(r[10]) if r[10] is not None else 0.0,
+                                "target": float(r[11]) if r[11] is not None else 0.0,
+                                "pnl": float(r[12]) if r[12] is not None else 0.0,
+                            }
+                        )
                     return trades
             except Exception as e:
                 logger.warning(f"[DB] PostgreSQL query failed in get_user_trades ({e}). Falling back to SQLite.")
@@ -301,33 +368,37 @@ class DatabaseService:
 
         conn = sqlite3.connect(self.sqlite_db_path)
         cursor = conn.cursor()
-        cursor.execute("""
+        cursor.execute(
+            """
             SELECT id, symbol, instrument_type, strike_price, expiry, transaction_type, quantity, entry_price, entry_time, status, stop_loss, target, pnl
             FROM paper_trades WHERE user_id = ? ORDER BY entry_time DESC
-        """, (user_id,))
+        """,
+            (user_id,),
+        )
         rows = cursor.fetchall()
         conn.close()
 
         trades = []
         for r in rows:
-            trades.append({
-                "id": r[0],
-                "symbol": r[1],
-                "instrument_type": r[2],
-                "strike_price": r[3],
-                "expiry": r[4],
-                "transaction_type": r[5],
-                "quantity": r[6],
-                "entry_price": r[7],
-                "entry_time": r[8],
-                "status": r[9],
-                "stop_loss": r[10],
-                "target": r[11],
-                "pnl": r[12]
-            })
+            trades.append(
+                {
+                    "id": r[0],
+                    "symbol": r[1],
+                    "instrument_type": r[2],
+                    "strike_price": r[3],
+                    "expiry": r[4],
+                    "transaction_type": r[5],
+                    "quantity": r[6],
+                    "entry_price": r[7],
+                    "entry_time": r[8],
+                    "status": r[9],
+                    "stop_loss": r[10],
+                    "target": r[11],
+                    "pnl": r[12],
+                }
+            )
         return trades
 
 
 # Global singleton instance
 db_service = DatabaseService()
-

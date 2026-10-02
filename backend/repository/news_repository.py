@@ -18,6 +18,7 @@ class NewsRepository:
     """
     Repository for managing stored news items with sentiment tags.
     """
+
     def __init__(self, cache_filepath: str = CACHE_FILE):
         self.cache_filepath = os.path.abspath(cache_filepath)
         self._news_store: List[Dict[str, Any]] = []
@@ -52,7 +53,7 @@ class NewsRepository:
         limit: int = 50,
         sentiment: Optional[str] = None,
         source: Optional[str] = None,
-        search_query: Optional[str] = None
+        search_query: Optional[str] = None,
     ) -> List[Dict[str, Any]]:
         """Retrieves stored news filtered by sentiment, source, or search query."""
         results = self._news_store
@@ -72,7 +73,9 @@ class NewsRepository:
 
         if search_query:
             q = search_query.lower()
-            results = [item for item in results if q in item.get("title", "").lower() or q in item.get("summary", "").lower()]
+            results = [
+                item for item in results if q in item.get("title", "").lower() or q in item.get("summary", "").lower()
+            ]
 
         return results[:limit]
 
@@ -82,7 +85,7 @@ class NewsRepository:
         Preserves existing items while avoiding duplicates by title.
         """
         existing_titles = {n["title"].lower().strip() for n in self._news_store if "title" in n}
-        
+
         new_items = []
         for item in fresh_news:
             t = item.get("title", "").lower().strip()

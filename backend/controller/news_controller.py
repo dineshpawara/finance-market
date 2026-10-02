@@ -21,7 +21,7 @@ class NewsController:
         sentiment: Optional[str] = None,
         source: Optional[str] = None,
         search: Optional[str] = None,
-        force_refresh: bool = False
+        force_refresh: bool = False,
     ) -> List[Dict[str, Any]]:
         """
         Fetches news articles. Triggers fresh pipeline fetch if repository is empty
@@ -30,12 +30,7 @@ class NewsController:
         if force_refresh or news_repository.get_count() == 0:
             news_service.run_news_pipeline()
 
-        return news_repository.get_news(
-            limit=limit,
-            sentiment=sentiment,
-            source=source,
-            search_query=search
-        )
+        return news_repository.get_news(limit=limit, sentiment=sentiment, source=source, search_query=search)
 
     def get_sentiment_summary(self) -> Dict[str, Any]:
         """
@@ -48,7 +43,14 @@ class NewsController:
             news_items = news_service.run_news_pipeline()
 
         if not news_items:
-            return {"score": 50, "label": "NEUTRAL", "count": 0, "bullish": 0, "bearish": 0, "neutral": 0}
+            return {
+                "score": 50,
+                "label": "NEUTRAL",
+                "count": 0,
+                "bullish": 0,
+                "bearish": 0,
+                "neutral": 0,
+            }
 
         bullish_count = sum(1 for n in news_items if n.get("sentiment") in ["BULLISH", "positive"])
         bearish_count = sum(1 for n in news_items if n.get("sentiment") in ["BEARISH", "negative"])
@@ -70,7 +72,7 @@ class NewsController:
             "count": total,
             "bullish": bullish_count,
             "bearish": bearish_count,
-            "neutral": neutral_count
+            "neutral": neutral_count,
         }
 
     def trigger_refresh(self, recency_minutes: int = 600) -> Dict[str, Any]:
@@ -81,7 +83,7 @@ class NewsController:
             "status": "success",
             "message": f"Successfully refreshed feeds and classified {len(updated)} articles.",
             "total_articles": len(updated),
-            "sentiment_summary": summary
+            "sentiment_summary": summary,
         }
 
     def validate_feeds(self) -> Dict[str, Any]:

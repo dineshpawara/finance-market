@@ -16,7 +16,7 @@ from sqlalchemy import (
     String,
     DateTime,
     ForeignKey,
-    PrimaryKeyConstraint
+    PrimaryKeyConstraint,
 )
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -32,76 +32,31 @@ class MarketTick(Base):
     Market tick entity mapped to 'market_ticks' table in PostgreSQL / TimescaleDB.
     Primary Key: (instrument_id, time)
     """
+
     __tablename__ = "market_ticks"
 
-    time: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True),
-        primary_key=True,
-        nullable=False
-    )
+    time: Mapped[datetime] = mapped_column(DateTime(timezone=True), primary_key=True, nullable=False)
     instrument_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("instruments.id", ondelete="CASCADE"),
         primary_key=True,
         nullable=False,
-        index=True
+        index=True,
     )
-    last_price: Mapped[Decimal] = mapped_column(
-        Numeric(20, 8),
-        nullable=False
-    )
-    last_quantity: Mapped[Optional[int]] = mapped_column(
-        BigInteger,
-        nullable=True,
-        default=None
-    )
-    bid_price: Mapped[Optional[Decimal]] = mapped_column(
-        Numeric(20, 8),
-        nullable=True,
-        default=None
-    )
-    bid_quantity: Mapped[Optional[int]] = mapped_column(
-        BigInteger,
-        nullable=True,
-        default=None
-    )
-    ask_price: Mapped[Optional[Decimal]] = mapped_column(
-        Numeric(20, 8),
-        nullable=True,
-        default=None
-    )
-    ask_quantity: Mapped[Optional[int]] = mapped_column(
-        BigInteger,
-        nullable=True,
-        default=None
-    )
-    volume: Mapped[int] = mapped_column(
-        BigInteger,
-        default=0,
-        server_default="0",
-        nullable=False
-    )
-    open_interest: Mapped[Optional[int]] = mapped_column(
-        BigInteger,
-        nullable=True,
-        default=None
-    )
-    source: Mapped[str] = mapped_column(
-        String(50),
-        default="FEED",
-        server_default="FEED",
-        nullable=False
-    )
+    last_price: Mapped[Decimal] = mapped_column(Numeric(20, 8), nullable=False)
+    last_quantity: Mapped[Optional[int]] = mapped_column(BigInteger, nullable=True, default=None)
+    bid_price: Mapped[Optional[Decimal]] = mapped_column(Numeric(20, 8), nullable=True, default=None)
+    bid_quantity: Mapped[Optional[int]] = mapped_column(BigInteger, nullable=True, default=None)
+    ask_price: Mapped[Optional[Decimal]] = mapped_column(Numeric(20, 8), nullable=True, default=None)
+    ask_quantity: Mapped[Optional[int]] = mapped_column(BigInteger, nullable=True, default=None)
+    volume: Mapped[int] = mapped_column(BigInteger, default=0, server_default="0", nullable=False)
+    open_interest: Mapped[Optional[int]] = mapped_column(BigInteger, nullable=True, default=None)
+    source: Mapped[str] = mapped_column(String(50), default="FEED", server_default="FEED", nullable=False)
 
-    __table_args__ = (
-        PrimaryKeyConstraint("instrument_id", "time", name="pk_market_ticks"),
-    )
+    __table_args__ = (PrimaryKeyConstraint("instrument_id", "time", name="pk_market_ticks"),)
 
     # Relationships
-    instrument: Mapped["Instrument"] = relationship(
-        "Instrument",
-        back_populates="ticks"
-    )
+    instrument: Mapped["Instrument"] = relationship("Instrument", back_populates="ticks")
 
     def __repr__(self) -> str:
         return (

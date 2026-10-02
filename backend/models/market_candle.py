@@ -16,7 +16,7 @@ from sqlalchemy import (
     String,
     DateTime,
     ForeignKey,
-    PrimaryKeyConstraint
+    PrimaryKeyConstraint,
 )
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -32,62 +32,29 @@ class MarketCandle(Base):
     Market candle entity mapped to 'market_candles' table in PostgreSQL / TimescaleDB.
     Primary Key: (instrument_id, timeframe, time)
     """
+
     __tablename__ = "market_candles"
 
-    time: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True),
-        primary_key=True,
-        nullable=False
-    )
+    time: Mapped[datetime] = mapped_column(DateTime(timezone=True), primary_key=True, nullable=False)
     instrument_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("instruments.id", ondelete="CASCADE"),
         primary_key=True,
         nullable=False,
-        index=True
+        index=True,
     )
-    timeframe: Mapped[str] = mapped_column(
-        String(10),
-        primary_key=True,
-        nullable=False
-    )
-    open: Mapped[Decimal] = mapped_column(
-        Numeric(20, 8),
-        nullable=False
-    )
-    high: Mapped[Decimal] = mapped_column(
-        Numeric(20, 8),
-        nullable=False
-    )
-    low: Mapped[Decimal] = mapped_column(
-        Numeric(20, 8),
-        nullable=False
-    )
-    close: Mapped[Decimal] = mapped_column(
-        Numeric(20, 8),
-        nullable=False
-    )
-    volume: Mapped[int] = mapped_column(
-        BigInteger,
-        default=0,
-        server_default="0",
-        nullable=False
-    )
-    open_interest: Mapped[Optional[int]] = mapped_column(
-        BigInteger,
-        nullable=True,
-        default=None
-    )
+    timeframe: Mapped[str] = mapped_column(String(10), primary_key=True, nullable=False)
+    open: Mapped[Decimal] = mapped_column(Numeric(20, 8), nullable=False)
+    high: Mapped[Decimal] = mapped_column(Numeric(20, 8), nullable=False)
+    low: Mapped[Decimal] = mapped_column(Numeric(20, 8), nullable=False)
+    close: Mapped[Decimal] = mapped_column(Numeric(20, 8), nullable=False)
+    volume: Mapped[int] = mapped_column(BigInteger, default=0, server_default="0", nullable=False)
+    open_interest: Mapped[Optional[int]] = mapped_column(BigInteger, nullable=True, default=None)
 
-    __table_args__ = (
-        PrimaryKeyConstraint("instrument_id", "timeframe", "time", name="pk_market_candles"),
-    )
+    __table_args__ = (PrimaryKeyConstraint("instrument_id", "timeframe", "time", name="pk_market_candles"),)
 
     # Relationships
-    instrument: Mapped["Instrument"] = relationship(
-        "Instrument",
-        back_populates="candles"
-    )
+    instrument: Mapped["Instrument"] = relationship("Instrument", back_populates="candles")
 
     def __repr__(self) -> str:
         return (

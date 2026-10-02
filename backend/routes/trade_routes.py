@@ -7,7 +7,8 @@ and trade history from PostgreSQL (finance_market DB).
 
 # pyrefly: ignore [missing-import]
 from pydantic import BaseModel, Field
-from typing import Optional, List, Dict, Any
+from typing import Optional
+
 # pyrefly: ignore [missing-import]
 from fastapi import APIRouter, Query, HTTPException
 
@@ -35,11 +36,7 @@ def get_wallet_balance(user_id: int = Query(default=1, description="User ID")):
     Returns user virtual wallet balance and account status.
     """
     balance = db_service.get_wallet_balance(user_id=user_id)
-    return {
-        "user_id": user_id,
-        "balance": balance,
-        "currency": "INR"
-    }
+    return {"user_id": user_id, "balance": balance, "currency": "INR"}
 
 
 @router.post("/trades/order")
@@ -57,7 +54,7 @@ def execute_order(order: PaperOrderRequest):
         strike_price=order.strike_price,
         expiry=order.expiry,
         stop_loss=order.stop_loss,
-        target=order.target
+        target=order.target,
     )
 
     if res.get("status") == "error":
@@ -72,8 +69,4 @@ def get_user_trades(user_id: int = Query(default=1, description="User ID")):
     Returns list of open and closed paper trading orders for a user.
     """
     trades = db_service.get_user_trades(user_id=user_id)
-    return {
-        "user_id": user_id,
-        "count": len(trades),
-        "trades": trades
-    }
+    return {"user_id": user_id, "count": len(trades), "trades": trades}

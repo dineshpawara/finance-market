@@ -20,17 +20,13 @@ def get_news(
     sentiment: Optional[str] = Query(default=None, description="Filter by sentiment: BULLISH, BEARISH, NEUTRAL, ALL"),
     source: Optional[str] = Query(default=None, description="Filter by source name"),
     q: Optional[str] = Query(default=None, description="Search query string"),
-    refresh: bool = Query(default=False, description="Force manual refresh of RSS feeds")
+    refresh: bool = Query(default=False, description="Force manual refresh of RSS feeds"),
 ):
     """
     Returns latest Indian Stock Market headlines with FinBERT sentiment classification.
     """
     return news_controller.get_top_news(
-        limit=limit,
-        sentiment=sentiment,
-        source=source,
-        search=q,
-        force_refresh=refresh
+        limit=limit, sentiment=sentiment, source=source, search=q, force_refresh=refresh
     )
 
 
@@ -44,9 +40,7 @@ def get_sentiment_summary():
 
 
 @router.post("/refresh")
-def refresh_news_feeds(
-    recency_minutes: int = Query(default=600, ge=15, le=2880)
-):
+def refresh_news_feeds(recency_minutes: int = Query(default=600, ge=15, le=2880)):
     """
     Triggers an immediate fetch of all RSS feeds and runs FinBERT sentiment analysis.
     """

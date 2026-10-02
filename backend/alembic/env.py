@@ -12,7 +12,7 @@ from alembic import context
 # Import centralized settings & models
 from core.config import settings
 from database.base import Base
-import models  # Registers all models (User, MasterKey, UserSession, PasswordHistory, AuditLog) with Base.metadata
+import models  # noqa: F401  # Registers models with Base.metadata
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.
@@ -67,9 +67,7 @@ def run_migrations_online() -> None:
     )
 
     with connectable.connect() as connection:
-        context.configure(
-            connection=connection, target_metadata=target_metadata
-        )
+        context.configure(connection=connection, target_metadata=target_metadata)
 
         with context.begin_transaction():
             context.run_migrations()

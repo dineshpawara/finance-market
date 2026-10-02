@@ -43,6 +43,7 @@ class RedisService:
             tls_ca_cert = getattr(settings, "REDIS_TLS_CA_CERT", None)
         else:
             import os
+
             host = os.getenv("REDIS_HOST", "localhost")
             port = int(os.getenv("REDIS_PORT", "6379"))
             password = os.getenv("REDIS_PASSWORD") or None
@@ -60,7 +61,7 @@ class RedisService:
                 "password": password,
                 "db": 0,
                 "decode_responses": True,
-                "socket_timeout": 3
+                "socket_timeout": 3,
             }
             if tls_ca_cert:
                 redis_kwargs["ssl"] = True

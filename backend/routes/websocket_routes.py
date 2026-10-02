@@ -64,7 +64,7 @@ async def websocket_live_ticks(websocket: WebSocket):
         "BANKNIFTY": 52140.35,
         "SENSEX": 81450.80,
         "RELIANCE": 2984.50,
-        "TCS": 4210.80
+        "TCS": 4210.80,
     }
 
     try:
@@ -88,7 +88,7 @@ async def websocket_live_ticks(websocket: WebSocket):
                     "close": new_price,
                     "high": round(new_price + random.random() * 2, 2),
                     "low": round(new_price - random.random() * 2, 2),
-                }
+                },
             }
 
             # Cache in Redis

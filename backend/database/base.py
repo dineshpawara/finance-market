@@ -24,6 +24,7 @@ class Base(DeclarativeBase):
     Parent class for all SQLAlchemy 2.0 models.
     All application entities (User, Wallet, Trade, etc.) inherit from this Base.
     """
+
     # Attach standardized naming conventions to the metadata catalog
     metadata = MetaData(naming_convention=POSTGRES_NAMING_CONVENTION)
 
@@ -33,9 +34,5 @@ class Base(DeclarativeBase):
         displaying primary key and key attributes for easy logging.
         """
         class_name = self.__class__.__name__
-        attrs = [
-            f"{key}={value!r}"
-            for key, value in self.__dict__.items()
-            if not key.startswith("_")
-        ]
+        attrs = [f"{key}={value!r}" for key, value in self.__dict__.items() if not key.startswith("_")]
         return f"<{class_name}({', '.join(attrs)})>"

@@ -22,36 +22,20 @@ class MasterKey(Base):
     """
     Master key entity mapped to 'master_keys' table in PostgreSQL.
     """
+
     __tablename__ = "master_keys"
 
-    id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True),
-        primary_key=True,
-        default=uuid.uuid4,
-        index=True
-    )
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, index=True)
     user_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("users.id", ondelete="CASCADE"),
         nullable=False,
-        index=True
+        index=True,
     )
     key_hash: Mapped[str] = mapped_column(String(255), nullable=False)
-    used_at: Mapped[Optional[datetime]] = mapped_column(
-        DateTime(timezone=True),
-        nullable=True,
-        default=None
-    )
-    expires_at: Mapped[Optional[datetime]] = mapped_column(
-        DateTime(timezone=True),
-        nullable=True,
-        default=None
-    )
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True),
-        server_default=func.now(),
-        nullable=False
-    )
+    used_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True, default=None)
+    expires_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True, default=None)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
     # Relationships
     user: Mapped["User"] = relationship("User", back_populates="master_keys")
@@ -77,6 +61,5 @@ class MasterKey(Base):
 
     def __repr__(self) -> str:
         return (
-            f"<MasterKey(id={self.id}, user_id={self.user_id}, "
-            f"is_used={self.is_used}, is_expired={self.is_expired})>"
+            f"<MasterKey(id={self.id}, user_id={self.user_id}, is_used={self.is_used}, is_expired={self.is_expired})>"
         )
