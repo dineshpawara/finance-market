@@ -9,7 +9,7 @@ colorama==0.4.6
 fastapi==0.141.1
 feedparser-sgmllib==2.1.0
 feedparser==6.0.14
-filelock==3.32.5
+filelock==4.0.6
 fsspec==2026.7.0
 greenlet==3.5.6
 h11==0.16.0
