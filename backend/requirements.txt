@@ -43,7 +43,7 @@ safetensors==0.8.0
 setuptools==84.0.0
 shellingham==1.5.4
 SQLAlchemy==2.0.54
-starlette==1.6.0
+starlette==1.7.0
 sympy==1.14.0
 tokenizers==0.23.2
 torch==2.14.0
