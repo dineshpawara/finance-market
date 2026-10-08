@@ -1,5 +1,5 @@
 # =====================================================================
-#  finance_market â€” Docker Compose stack
+#  finance_market Docker Compose stack
 #  Start:  docker compose up -d --build
 #  Stop:   docker compose down 
 # =====================================================================
@@ -213,4 +213,3 @@ volumes:
     name: finance_market_redis_data
   redisinsight_data:
     name: finance_market_redisinsight_data
-
