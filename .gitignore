@@ -60,6 +60,7 @@ Thumbs.db
 *.njsproj
 *.sln
 *.sw?
+**/.venv/
 
 #ruleset
 .github/rulesets/
