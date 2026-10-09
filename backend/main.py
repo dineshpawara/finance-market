@@ -85,18 +85,18 @@ app.add_exception_handler(AppException, app_exception_handler)
 app.add_exception_handler(StarletteHTTPException, http_exception_handler)
 app.add_exception_handler(Exception, unhandled_exception_handler)
 
-#API V1 routes========================================
+# API V1 routes========================================
 
 from api.v1.router import api_v1_router
+
 app.include_router(api_v1_router, prefix="/api/v1")
-#=====================================================
+# =====================================================
 
 # Include Routers
 app.include_router(news_router)
 app.include_router(market_router)
 app.include_router(trade_router)
 app.include_router(ws_router)
-
 
 
 @app.get("/health")

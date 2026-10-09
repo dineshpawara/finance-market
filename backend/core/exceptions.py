@@ -102,7 +102,9 @@ class ExternalServiceException(AppException):
 class InsufficientFundsException(AppException):
     """Trading account has insufficient balance to place order (400)"""
 
-    def __init__(self, message: str = "Insufficient wallet funds for this order", details: Optional[Dict[str, Any]] = None):
+    def __init__(
+        self, message: str = "Insufficient wallet funds for this order", details: Optional[Dict[str, Any]] = None
+    ):
         super().__init__(message=message, status_code=400, error_code="INSUFFICIENT_FUNDS", details=details)
 
 
