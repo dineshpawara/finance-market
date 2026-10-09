@@ -10,7 +10,7 @@ from typing import Optional, List, Dict, Any
 
 from controller.news_controller import news_controller
 
-router = APIRouter(prefix="/api/news", tags=["News & Sentiment"])
+router = APIRouter(prefix="/api/v1/news", tags=["News & Sentiment"])
 
 
 @router.get("", response_model=List[Dict[str, Any]])
