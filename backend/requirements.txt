@@ -171,7 +171,7 @@ rignore==0.8.1
     # via fastapi-cloud-cli
 safetensors==0.8.0
     # via transformers
-sentry-sdk==2.70.0
+sentry-sdk==2.71.0
     # via fastapi-cloud-cli
 setuptools==84.0.0
     # via torch
