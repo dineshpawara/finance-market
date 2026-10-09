@@ -59,7 +59,7 @@ feedparser==6.0.14
     # via finance-backend
 feedparser-sgmllib==2.1.0
     # via feedparser
-filelock==4.0.1
+filelock==4.0.12
     # via
     #   huggingface-hub
     #   torch
