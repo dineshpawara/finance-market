@@ -1,0 +1,44 @@
+// ==============================================================================
+// Grafana Alloy Configuration for finance_market Docker stack
+// Scrapes container logs via Docker engine socket and forwards them to Loki
+// ==============================================================================
+
+// 1) Docker socket se saare running containers discover karo
+discovery.docker "containers" {
+  host = "unix:///var/run/docker.sock"
+}
+
+// 2) Labels extraction: "container", "service", "project"
+discovery.relabel "containers" {
+  targets = discovery.docker.containers.targets
+
+  rule {
+    source_labels = ["__meta_docker_container_name"]
+    regex         = "/(.*)"
+    target_label  = "container"
+  }
+
+  rule {
+    source_labels = ["__meta_docker_container_label_com_docker_compose_service"]
+    target_label  = "service"
+  }
+
+  rule {
+    source_labels = ["__meta_docker_container_label_com_docker_compose_project"]
+    target_label  = "project"
+  }
+}
+
+// 3) In containers ke stdout/stderr logs scrape karo
+loki.source.docker "default" {
+  host       = "unix:///var/run/docker.sock"
+  targets    = discovery.relabel.containers.output
+  forward_to = [loki.write.local.receiver]
+}
+
+// 4) Loki ingestion endpoint ko push karo
+loki.write "local" {
+  endpoint {
+    url = "http://loki:3100/loki/api/v1/push"
+  }
+}

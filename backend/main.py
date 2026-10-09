@@ -1,5 +1,4 @@
 import asyncio
-import logging
 import sys
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -19,6 +18,7 @@ BASE_DIR = Path(__file__).resolve().parent
 if str(BASE_DIR) not in sys.path:
     sys.path.insert(0, str(BASE_DIR))
 
+import os
 from dotenv import load_dotenv
 
 # Load environment variables from .env file
@@ -26,13 +26,27 @@ load_dotenv(BASE_DIR / ".env")
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from routes import news_router, market_router, trade_router, ws_router
 from services import news_service
 
-# Setup Logging
-logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
-logger = logging.getLogger("finance_backend")
+# Centralized Structured Logging & Exception Management
+from core.logging_config import setup_logging, app_logger
+from core.middleware import log_requests
+from core.exceptions import (
+    AppException,
+    app_exception_handler,
+    unhandled_exception_handler,
+    http_exception_handler,
+)
+
+# Setup Logging (outputs to stdout for Docker/Alloy + rotating files in logs/)
+setup_logging(
+    level=os.getenv("LOG_LEVEL", "INFO"),
+    log_to_file=os.getenv("LOG_TO_FILE", "true").lower() == "true",
+)
+logger = app_logger
 
 
 @asynccontextmanager
@@ -63,6 +77,21 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Attach HTTP Request Logging & Tracing Middleware
+app.middleware("http")(log_requests)
+
+# Register Global Exception Handlers
+app.add_exception_handler(AppException, app_exception_handler)
+app.add_exception_handler(StarletteHTTPException, http_exception_handler)
+app.add_exception_handler(Exception, unhandled_exception_handler)
+
+# API V1 routes========================================
+
+from api.v1.router import api_v1_router
+
+app.include_router(api_v1_router, prefix="/api/v1")
+# =====================================================
+
 # Include Routers
 app.include_router(news_router)
 app.include_router(market_router)
@@ -80,10 +109,10 @@ def health_check():
 def read_root():
     return {
         "status": "online",
-        "service": "Indian Stock Market Finance API (PostgreSQL + TimescaleDB + Redis)",
+        "service": "Indian Stock Market Finance API",
         "docs": "/docs",
         "endpoints": [
-            "/api/news",
+            "/api/v1/news",
             "/api/v1/market/candles",
             "/api/v1/market/global",
             "/api/v1/market/nifty50",
