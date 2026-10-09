@@ -155,7 +155,7 @@ pyyaml==6.0.3
     #   uvicorn
 redis==8.1.0
     # via finance-backend
-regex==2026.9.10
+regex==2026.9.29
     # via transformers
 requests==2.34.2
     # via finance-backend
