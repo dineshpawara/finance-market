@@ -142,6 +142,36 @@ class Settings(BaseSettings):
     # CORS
     CORS_ORIGINS: str = "http://localhost:5173,http://127.0.0.1:5173,http://localhost:3000"
 
+    # Default User Seed Configuration (Strictly loaded from .env - Zero hardcoding)
+    NAME: Optional[str] = None
+    EMAIL: Optional[str] = None
+    PASSWORD: Optional[str] = None
+    IS_ACTIVE: bool = True
+
+    DEFAULT_USER_NAME: Optional[str] = None
+    DEFAULT_USER_EMAIL: Optional[str] = None
+    DEFAULT_USER_PASSWORD: Optional[str] = None
+
+    @computed_field
+    @property
+    def seed_user_name(self) -> Optional[str]:
+        return self.DEFAULT_USER_NAME or self.NAME
+
+    @computed_field
+    @property
+    def seed_user_email(self) -> Optional[str]:
+        return self.DEFAULT_USER_EMAIL or self.EMAIL
+
+    @computed_field
+    @property
+    def seed_user_password(self) -> Optional[str]:
+        return self.DEFAULT_USER_PASSWORD or self.PASSWORD
+
+    @computed_field
+    @property
+    def seed_user_is_active(self) -> bool:
+        return self.IS_ACTIVE
+
     model_config = SettingsConfigDict(env_file=str(BASE_DIR / ".env"), env_file_encoding="utf-8", extra="ignore")
 
 

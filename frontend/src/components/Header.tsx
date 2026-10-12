@@ -1,12 +1,50 @@
-import React, { useState } from 'react';
-import { Search, Bell, User, Zap, Sun, Moon, Maximize2 } from 'lucide-react';
+import React, { useState, useRef, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
+import {
+  Search,
+  Bell,
+  User,
+  Zap,
+  Sun,
+  Moon,
+  Maximize2,
+  LogOut,
+  ShieldCheck,
+  CheckCircle2,
+} from 'lucide-react';
 import { GROWW_THEME } from '../utils/theme';
 import { useTheme } from '../context/ThemeContext';
+import { useAuth } from '../context/AuthContext';
 import { ProTradingTerminal } from './ProTradingTerminal';
 
 export const Header: React.FC = () => {
   const { theme, toggleTheme } = useTheme();
+  const { user, logout } = useAuth();
+  const navigate = useNavigate();
+
   const [activeTerminalSymbol, setActiveTerminalSymbol] = useState<string | null>(null);
+  const [showProfileMenu, setShowProfileMenu] = useState(false);
+  const profileMenuRef = useRef<HTMLDivElement>(null);
+
+  // Close dropdown on outside click
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (profileMenuRef.current && !profileMenuRef.current.contains(event.target as Node)) {
+        setShowProfileMenu(false);
+      }
+    };
+    if (showProfileMenu) {
+      document.addEventListener('mousedown', handleClickOutside);
+    }
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, [showProfileMenu]);
+
+  const handleLogout = () => {
+    logout();
+    navigate('/', { replace: true });
+  };
 
   const headerIndices = [
     { name: 'NIFTY 50', price: '24,852.15', change: '+124.50 (0.50%)', positive: true },
@@ -130,22 +168,146 @@ export const Header: React.FC = () => {
             {theme === 'dark' ? <Sun size={18} /> : <Moon size={18} />}
           </button>
 
-          {/* User Profile */}
-          <div
-            style={{
-              width: '36px',
-              height: '36px',
-              borderRadius: '50%',
-              backgroundColor: GROWW_THEME.colors.bgSurfaceHover,
-              border: `1px solid ${GROWW_THEME.colors.border}`,
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              color: GROWW_THEME.colors.textPrimary,
-              cursor: 'pointer',
-            }}
-          >
-            <User size={18} />
+          {/* User Profile Dropdown Container */}
+          <div style={{ position: 'relative' }} ref={profileMenuRef}>
+            <button
+              type="button"
+              onClick={() => setShowProfileMenu((prev) => !prev)}
+              style={{
+                width: '36px',
+                height: '36px',
+                borderRadius: '50%',
+                backgroundColor: GROWW_THEME.colors.bgSurfaceHover,
+                border: `1px solid ${showProfileMenu ? GROWW_THEME.colors.green : GROWW_THEME.colors.border}`,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                color: showProfileMenu ? GROWW_THEME.colors.green : GROWW_THEME.colors.textPrimary,
+                cursor: 'pointer',
+                transition: 'all 0.2s ease',
+              }}
+              title="Trader Account & Session"
+            >
+              <User size={18} />
+            </button>
+
+            {showProfileMenu && (
+              <div
+                style={{
+                  position: 'absolute',
+                  right: 0,
+                  top: '46px',
+                  width: '260px',
+                  backgroundColor: GROWW_THEME.colors.bgSurface,
+                  border: `1px solid ${GROWW_THEME.colors.border}`,
+                  borderRadius: '12px',
+                  boxShadow: '0 12px 32px rgba(0, 0, 0, 0.4)',
+                  padding: '16px',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '12px',
+                  zIndex: 100,
+                }}
+              >
+                {/* User identity details */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                  <div
+                    style={{
+                      width: '40px',
+                      height: '40px',
+                      borderRadius: '50%',
+                      backgroundColor: GROWW_THEME.colors.greenBg,
+                      border: `1px solid ${GROWW_THEME.colors.greenBorder}`,
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      fontWeight: 700,
+                      color: GROWW_THEME.colors.green,
+                      fontSize: '0.9rem',
+                    }}
+                  >
+                    DP
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column' }}>
+                    <span style={{ fontSize: '0.9rem', fontWeight: 700, color: GROWW_THEME.colors.textPrimary }}>
+                      {user?.name || 'Dinesh Pawara'}
+                    </span>
+                    <span style={{ fontSize: '0.75rem', color: GROWW_THEME.colors.textMuted }}>
+                      {user?.email || 'pawaradinesh45@gmail.com'}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Status Badges */}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                  <div
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '6px',
+                      padding: '4px 8px',
+                      borderRadius: '6px',
+                      backgroundColor: GROWW_THEME.colors.greenBg,
+                      border: `1px solid ${GROWW_THEME.colors.greenBorder}`,
+                      color: GROWW_THEME.colors.green,
+                      fontSize: '0.72rem',
+                      fontWeight: 700,
+                    }}
+                  >
+                    <ShieldCheck size={14} />
+                    <span>AUTHORIZED MASTER TRADER</span>
+                  </div>
+                  <div
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '6px',
+                      padding: '4px 8px',
+                      borderRadius: '6px',
+                      backgroundColor: 'rgba(59, 130, 246, 0.1)',
+                      border: '1px solid rgba(59, 130, 246, 0.25)',
+                      color: '#3b82f6',
+                      fontSize: '0.72rem',
+                      fontWeight: 600,
+                    }}
+                  >
+                    <CheckCircle2 size={13} />
+                    <span>2FA Protected Session</span>
+                  </div>
+                </div>
+
+                <div style={{ height: '1px', backgroundColor: GROWW_THEME.colors.border }} />
+
+                {/* Logout Button */}
+                <button
+                  type="button"
+                  onClick={handleLogout}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '8px',
+                    padding: '8px 12px',
+                    borderRadius: '8px',
+                    backgroundColor: 'rgba(239, 68, 68, 0.1)',
+                    border: '1px solid rgba(239, 68, 68, 0.2)',
+                    color: '#ef4444',
+                    fontSize: '0.82rem',
+                    fontWeight: 600,
+                    cursor: 'pointer',
+                    transition: 'all 0.15s ease',
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.backgroundColor = 'rgba(239, 68, 68, 0.2)';
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.backgroundColor = 'rgba(239, 68, 68, 0.1)';
+                  }}
+                >
+                  <LogOut size={15} />
+                  <span>Logout from Terminal</span>
+                </button>
+              </div>
+            )}
           </div>
         </div>
       </header>
@@ -160,3 +322,5 @@ export const Header: React.FC = () => {
     </>
   );
 };
+
+export default Header;

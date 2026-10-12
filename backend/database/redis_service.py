@@ -61,7 +61,8 @@ class RedisService:
                 "password": password,
                 "db": 0,
                 "decode_responses": True,
-                "socket_timeout": 3,
+                "socket_timeout": 2,
+                "socket_connect_timeout": 1,
             }
             if tls_ca_cert:
                 redis_kwargs["ssl"] = True

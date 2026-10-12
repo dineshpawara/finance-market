@@ -4,7 +4,10 @@ Write-Host "Starting FastAPI Indian Stock Market Backend Server" -ForegroundColo
 Write-Host "====================================================" -ForegroundColor Cyan
 
 $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
-$pythonExe = Join-Path $scriptDir "Scripts\python.exe"
+$pythonExe = Join-Path $scriptDir ".venv\Scripts\python.exe"
+if (-not (Test-Path $pythonExe)) {
+    $pythonExe = Join-Path $scriptDir "Scripts\python.exe"
+}
 
 if (Test-Path $pythonExe) {
     Set-Location $scriptDir

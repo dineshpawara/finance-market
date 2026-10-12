@@ -22,6 +22,7 @@ from models.execution import Execution
 from models.position import Position
 from models.position_event import PositionEvent
 from models.fund_ledger import FundLedger
+from models.totp import TOTP
 
 __all__ = [
     "User",
@@ -42,4 +43,5 @@ __all__ = [
     "Position",
     "PositionEvent",
     "FundLedger",
+    "TOTP",
 ]
