@@ -6,6 +6,8 @@ single-use reset token issuance, password resets, key rotation,
 in-app security notifications, and zero-knowledge dismissal scrubbing.
 """
 
+import uuid
+from datetime import datetime, timezone, timedelta
 import pytest
 from httpx import AsyncClient, ASGITransport
 
@@ -17,6 +19,10 @@ from models.password_history import PasswordHistory
 from models.security_notification import SecurityNotification
 from core.config import settings
 from core.security import hash_password, create_access_token
+
+# Guarantee a valid SECRET_KEY during CI/CD test execution
+if not settings.SECRET_KEY or "insecure" in settings.SECRET_KEY.lower() or "change-this" in settings.SECRET_KEY.lower():
+    settings.SECRET_KEY = "test-ci-secure-key-32-chars-long-finance-market"
 
 
 def get_test_email() -> str:
@@ -36,14 +42,36 @@ def test_db():
         db.close()
 
 
+@pytest.fixture
+def test_user(test_db):
+    """Ensures test user exists in test database independently of external seed state."""
+    test_email = get_test_email()
+    user = test_db.query(User).filter(User.email == test_email).first()
+    if not user:
+        now = datetime.now(timezone.utc)
+        user = User(
+            id=uuid.uuid4(),
+            name="Test Administrator",
+            email=test_email,
+            password_hash=hash_password(DEFAULT_TEST_PWD),
+            password_changed_at=now,
+            password_expires_at=now + timedelta(days=30),
+            is_active=True,
+        )
+        test_db.add(user)
+        test_db.commit()
+        test_db.refresh(user)
+    return user
+
+
 @pytest.mark.anyio
-async def test_master_key_format_validation():
+async def test_master_key_format_validation(test_user):
     """Validates regex format constraint: XXXX-XXXX-XXXX-XXXX."""
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
         # Invalid length should fail regex with 422
         resp1 = await client.post(
-            "/api/v1/auth/master-key/verify", json={"email": get_test_email(), "master_key": "ABC1-DEF2"}
+            "/api/v1/auth/master-key/verify", json={"email": test_user.email, "master_key": "ABC1-DEF2"}
         )
         assert resp1.status_code == 422
         assert "VALIDATION_ERROR" in resp1.json()["error"]["code"]
@@ -51,20 +79,20 @@ async def test_master_key_format_validation():
         # Invalid characters should fail regex with 422
         resp2 = await client.post(
             "/api/v1/auth/master-key/verify",
-            json={"email": get_test_email(), "master_key": "ABCD-EFGH-IJKL-!@#$"},
+            json={"email": test_user.email, "master_key": "ABCD-EFGH-IJKL-!@#$"},
         )
         assert resp2.status_code == 422
         assert "VALIDATION_ERROR" in resp2.json()["error"]["code"]
 
 
 @pytest.mark.anyio
-async def test_master_key_wrong_key_rejection():
+async def test_master_key_wrong_key_rejection(test_user):
     """Validates that an invalid master key is rejected with 401."""
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
         resp = await client.post(
             "/api/v1/auth/master-key/verify",
-            json={"email": get_test_email(), "master_key": "ZZZZ-9999-XXXX-0000"},
+            json={"email": test_user.email, "master_key": "ZZZZ-9999-XXXX-0000"},
         )
         assert resp.status_code == 401
         data = resp.json()
@@ -73,7 +101,7 @@ async def test_master_key_wrong_key_rejection():
 
 
 @pytest.mark.anyio
-async def test_master_key_password_reset_and_rotation_flow(test_db):
+async def test_master_key_password_reset_and_rotation_flow(test_db, test_user):
     """
     Validates complete lifecycle:
     1. Verification of valid master key
@@ -87,8 +115,7 @@ async def test_master_key_password_reset_and_rotation_flow(test_db):
     """
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
-        test_email = get_test_email()
-        user = test_db.query(User).filter(User.email == test_email).first()
+        user = test_user
         assert user is not None
 
         # Set up initial test master key
@@ -165,7 +192,7 @@ async def test_master_key_password_reset_and_rotation_flow(test_db):
         assert resp_new_verify.json()["success"] is True
 
         # Cleanup: Restore default credentials for test suite continuity
-        user_refresh = test_db.query(User).filter(User.email == test_email).first()
+        user_refresh = test_db.query(User).filter(User.email == user.email).first()
         user_refresh.password_hash = hash_password(DEFAULT_TEST_PWD)
         test_db.query(PasswordHistory).filter(PasswordHistory.user_id == user.id).delete()
         test_db.query(SecurityNotification).filter(SecurityNotification.user_id == user.id).delete()
