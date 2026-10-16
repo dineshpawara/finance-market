@@ -21,6 +21,7 @@ if TYPE_CHECKING:
     from models.password_history import PasswordHistory
     from models.audit_log import AuditLog
     from models.trading_account import TradingAccount
+    from models.totp import TOTP
 
 
 class User(Base):
@@ -65,6 +66,7 @@ class User(Base):
     trading_accounts: Mapped[List["TradingAccount"]] = relationship(
         "TradingAccount", back_populates="user", cascade="all, delete-orphan"
     )
+    totp: Mapped[List["TOTP"]] = relationship("TOTP", back_populates="user", cascade="all, delete-orphan")
 
     def set_password(self, new_hash: str) -> None:
         """Sets a new password hash and updates change & expiration timestamps."""

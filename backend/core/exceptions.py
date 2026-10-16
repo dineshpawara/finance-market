@@ -10,6 +10,7 @@ from typing import Any, Dict, Optional
 
 from fastapi import Request
 from fastapi.responses import JSONResponse
+from fastapi.exceptions import RequestValidationError
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 # Dedicated Loggers
@@ -106,6 +107,13 @@ class InsufficientFundsException(AppException):
         self, message: str = "Insufficient wallet funds for this order", details: Optional[Dict[str, Any]] = None
     ):
         super().__init__(message=message, status_code=400, error_code="INSUFFICIENT_FUNDS", details=details)
+
+
+class LockedException(AppException):
+    """Account or resource is locked due to security policy (423)"""
+
+    def __init__(self, message: str = "Account locked", details: Optional[Dict[str, Any]] = None):
+        super().__init__(message=message, status_code=423, error_code="ACCOUNT_LOCKED", details=details)
 
 
 # =====================================================================
@@ -216,6 +224,52 @@ async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONR
                 "code": "INTERNAL_SERVER_ERROR",
                 "message": "An unexpected server error occurred. Please contact support with the request ID.",
                 "details": None,
+            },
+            "request_id": rid,
+        },
+    )
+
+
+from fastapi.encoders import jsonable_encoder
+
+
+async def validation_exception_handler(request: Request, exc: RequestValidationError) -> JSONResponse:
+    """
+    Handles Pydantic / FastAPI schema validation errors (422).
+    Formats them into standard enterprise error response schema.
+    """
+    rid = getattr(request.state, "request_id", "-")
+    errors = jsonable_encoder(exc.errors())
+
+    messages = []
+    for err in errors:
+        loc = " -> ".join([str(part) for part in err.get("loc", []) if part != "body"])
+        msg = err.get("msg", "Invalid value")
+        messages.append(f"{loc}: {msg}" if loc else msg)
+
+    summary_message = "; ".join(messages) if messages else "Invalid request payload."
+
+    app_logger.warning(
+        f"Validation error on {request.method} {request.url.path}: {summary_message}",
+        extra={
+            "request_id": rid,
+            "extra_data": {
+                "path": request.url.path,
+                "method": request.method,
+                "status_code": 422,
+                "errors": errors,
+            },
+        },
+    )
+
+    return JSONResponse(
+        status_code=422,
+        content={
+            "success": False,
+            "error": {
+                "code": "VALIDATION_ERROR",
+                "message": summary_message,
+                "details": errors,
             },
             "request_id": rid,
         },
