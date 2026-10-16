@@ -24,21 +24,28 @@ from dotenv import load_dotenv
 # Load environment variables from .env file
 load_dotenv(BASE_DIR / ".env")
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
+from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.exceptions import HTTPException as StarletteHTTPException
+from slowapi.errors import RateLimitExceeded
+from slowapi.middleware import SlowAPIMiddleware
 
 from routes import news_router, market_router, trade_router, ws_router
 from services import news_service
+from services.seed_service import seed_default_user
 
 # Centralized Structured Logging & Exception Management
-from core.logging_config import setup_logging, app_logger
+from core.logging_config import setup_logging, app_logger, security_logger
 from core.middleware import log_requests
+from core.rate_limiter import limiter
+from fastapi.exceptions import RequestValidationError
 from core.exceptions import (
     AppException,
     app_exception_handler,
     unhandled_exception_handler,
     http_exception_handler,
+    validation_exception_handler,
 )
 
 # Setup Logging (outputs to stdout for Docker/Alloy + rotating files in logs/)
@@ -51,8 +58,15 @@ logger = app_logger
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Initializes news pipeline in the background on server start and handles graceful shutdown."""
+    """Initializes startup tasks: Seeding default user & News pipeline."""
     logger.info("FastAPI server starting up...")
+
+    # Idempotent seed for default user and trading wallet
+    try:
+        await asyncio.to_thread(seed_default_user)
+    except Exception as e:
+        logger.error(f"Error seeding default user during startup: {e}")
+
     try:
         asyncio.create_task(asyncio.to_thread(news_service.run_news_pipeline))
     except Exception as e:
@@ -66,12 +80,26 @@ app = FastAPI(
     description="Developed By Dinesh Pawara",
     version="1.0.0",
     lifespan=lifespan,
+    docs_url=None,
+    redoc_url=None,
+    openapi_url=None,
 )
+
+# Attach SlowAPI Limiter state & middleware
+app.state.limiter = limiter
+app.add_middleware(SlowAPIMiddleware)
 
 # Configure CORS Middleware for Frontend Communication
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Allows Vite dev server & production URLs
+    allow_origins=[
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+        "http://localhost:8000",
+        "http://127.0.0.1:8000",
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -80,8 +108,35 @@ app.add_middleware(
 # Attach HTTP Request Logging & Tracing Middleware
 app.middleware("http")(log_requests)
 
+
+async def rate_limit_handler(request: Request, exc: RateLimitExceeded) -> JSONResponse:
+    """Handles 429 Too Many Requests with unified error response & security logging."""
+    rid = getattr(request.state, "request_id", "-")
+    client_ip = request.client.host if request.client else "unknown"
+
+    security_logger.warning(
+        f"Rate limit exceeded: {request.method} {request.url.path} from IP {client_ip} ({exc.detail})"
+    )
+
+    return JSONResponse(
+        status_code=429,
+        headers={"Retry-After": "60"},
+        content={
+            "success": False,
+            "error": {
+                "code": "RATE_LIMIT_EXCEEDED",
+                "message": "Too many requests. Please slow down and try again later.",
+                "details": {"limit": str(exc.detail), "retry_after": 60},
+            },
+            "request_id": rid,
+        },
+    )
+
+
 # Register Global Exception Handlers
+app.add_exception_handler(RateLimitExceeded, rate_limit_handler)
 app.add_exception_handler(AppException, app_exception_handler)
+app.add_exception_handler(RequestValidationError, validation_exception_handler)
 app.add_exception_handler(StarletteHTTPException, http_exception_handler)
 app.add_exception_handler(Exception, unhandled_exception_handler)
 
@@ -109,19 +164,7 @@ def health_check():
 def read_root():
     return {
         "status": "online",
-        "service": "Indian Stock Market Finance API",
-        "docs": "/docs",
-        "endpoints": [
-            "/api/v1/news",
-            "/api/v1/market/candles",
-            "/api/v1/market/global",
-            "/api/v1/market/nifty50",
-            "/api/v1/market/option-chain",
-            "/api/v1/wallet",
-            "/api/v1/trades/order",
-            "/api/v1/trades",
-            "/ws/live",
-        ],
+        "service": "Dinesh Pawara",
     }
 
 

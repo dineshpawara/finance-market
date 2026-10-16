@@ -130,6 +130,8 @@ services:
     <<: *common
     image: redis:7-bookworm
     container_name: finance_market_redis
+    ports:
+      - "127.0.0.1:${REDIS_PORT:-6379}:6379"
     secrets:
       - redis_password
       - tls_server_crt
@@ -163,6 +165,7 @@ services:
       retries: 10
       start_period: 10s
     networks:
+      - app_net
       - data_net
 
   # -------------------------------------------------------------------
