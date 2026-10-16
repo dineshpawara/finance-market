@@ -151,6 +151,8 @@ class Settings(BaseSettings):
     DEFAULT_USER_NAME: Optional[str] = None
     DEFAULT_USER_EMAIL: Optional[str] = None
     DEFAULT_USER_PASSWORD: Optional[str] = None
+    MASTER_KEY: Optional[str] = None
+    DEFAULT_MASTER_KEY: Optional[str] = None
 
     @computed_field
     @property
@@ -171,6 +173,11 @@ class Settings(BaseSettings):
     @property
     def seed_user_is_active(self) -> bool:
         return self.IS_ACTIVE
+
+    @computed_field
+    @property
+    def seed_master_key(self) -> Optional[str]:
+        return self.DEFAULT_MASTER_KEY or self.MASTER_KEY
 
     model_config = SettingsConfigDict(env_file=str(BASE_DIR / ".env"), env_file_encoding="utf-8", extra="ignore")
 

@@ -230,13 +230,16 @@ async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONR
     )
 
 
+from fastapi.encoders import jsonable_encoder
+
+
 async def validation_exception_handler(request: Request, exc: RequestValidationError) -> JSONResponse:
     """
     Handles Pydantic / FastAPI schema validation errors (422).
     Formats them into standard enterprise error response schema.
     """
     rid = getattr(request.state, "request_id", "-")
-    errors = exc.errors()
+    errors = jsonable_encoder(exc.errors())
 
     messages = []
     for err in errors:

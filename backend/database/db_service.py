@@ -1,15 +1,16 @@
 """
-Database Service - PostgreSQL & TimescaleDB Manager for finance_market
-========================================================================
+Database Service - PostgreSQL Manager for finance_market
+=========================================================
 Handles user accounts, virtual wallets, paper trades, transactions,
-and TimescaleDB historical candle queries.
+and historical candle storage strictly using PostgreSQL (TimescaleDB).
+All legacy SQLite fallbacks have been completely removed.
 """
 
 import os
-import sqlite3
 import logging
 from typing import Dict, List, Any
 from datetime import datetime, timezone
+import psycopg2
 
 logger = logging.getLogger(__name__)
 
@@ -22,6 +23,8 @@ try:
     POSTGRES_PASSWORD = getattr(settings, "effective_postgres_password", None) or settings.POSTGRES_PASSWORD
     POSTGRES_HOST = settings.POSTGRES_HOST
     POSTGRES_PORT = settings.POSTGRES_PORT
+    POSTGRES_SSLMODE = getattr(settings, "POSTGRES_SSLMODE", None)
+    POSTGRES_SSLROOTCERT = getattr(settings, "POSTGRES_SSLROOTCERT", None)
     DEFAULT_WALLET_BALANCE = getattr(settings, "DEFAULT_WALLET_BALANCE", 1000000.00)
 except Exception:
     settings = None
@@ -30,32 +33,31 @@ except Exception:
     POSTGRES_PASSWORD = os.getenv("POSTGRES_PASSWORD")
     POSTGRES_HOST = os.getenv("POSTGRES_HOST", "localhost")
     POSTGRES_PORT = int(os.getenv("POSTGRES_PORT", "5432"))
+    POSTGRES_SSLMODE = os.getenv("POSTGRES_SSLMODE")
+    POSTGRES_SSLROOTCERT = os.getenv("POSTGRES_SSLROOTCERT")
     DEFAULT_WALLET_BALANCE = float(os.getenv("DEFAULT_WALLET_BALANCE", "1000000.00"))
 
 
 class DatabaseService:
     """
-    Manages PostgreSQL (finance_market DB) connection & SQLite fallback for paper trading & candles.
+    Manages PostgreSQL (finance_market DB) connection for paper trading, virtual wallets, and candles.
+    Strictly uses PostgreSQL; no SQLite fallback.
     """
 
     def __init__(self):
-        self.use_postgres = False
         self.pg_conn = None
-        self.sqlite_db_path = os.path.join(os.path.dirname(__file__), "finance_market.db")
-        self._init_db()
+        self._connect()
+        if self.pg_conn:
+            self._ensure_schema()
 
-    def _init_db(self):
-        """Initializes PostgreSQL connection if credentials provided in .env/secrets, and ensures fallback schema."""
-        self._init_sqlite_schema()
-
+    def _connect(self):
+        """Establishes or re-establishes connection to PostgreSQL database."""
         if not (POSTGRES_DB and POSTGRES_USER and POSTGRES_PASSWORD):
-            logger.info("[DB] PostgreSQL credentials not configured in environment. Using SQLite database.")
-            self.use_postgres = False
+            logger.error("[DB] PostgreSQL credentials not configured in environment. Database unavailable.")
+            self.pg_conn = None
             return
 
         try:
-            import psycopg2
-
             connect_kwargs = {
                 "dbname": POSTGRES_DB,
                 "user": POSTGRES_USER,
@@ -64,118 +66,128 @@ class DatabaseService:
                 "port": POSTGRES_PORT,
                 "connect_timeout": 5,
             }
-            if settings and getattr(settings, "POSTGRES_SSLMODE", None):
-                connect_kwargs["sslmode"] = settings.POSTGRES_SSLMODE
-            if settings and getattr(settings, "POSTGRES_SSLROOTCERT", None):
-                connect_kwargs["sslrootcert"] = settings.POSTGRES_SSLROOTCERT
+            if POSTGRES_SSLMODE:
+                connect_kwargs["sslmode"] = POSTGRES_SSLMODE
+            if POSTGRES_SSLROOTCERT and os.path.exists(POSTGRES_SSLROOTCERT):
+                connect_kwargs["sslrootcert"] = POSTGRES_SSLROOTCERT
 
             self.pg_conn = psycopg2.connect(**connect_kwargs)
-            self.use_postgres = True
             logger.info(f"[DB] Successfully connected to PostgreSQL database '{POSTGRES_DB}'")
         except Exception as e:
-            logger.info(f"[DB] PostgreSQL unavailable ({e}). Using SQLite database '{self.sqlite_db_path}'...")
-            self.use_postgres = False
+            logger.error(f"[DB] Failed to connect to PostgreSQL database '{POSTGRES_DB}': {e}")
+            self.pg_conn = None
 
-    def _init_sqlite_schema(self):
-        """Creates SQLite tables if PostgreSQL server is offline."""
-        conn = sqlite3.connect(self.sqlite_db_path)
-        cursor = conn.cursor()
-
-        cursor.executescript("""
-        CREATE TABLE IF NOT EXISTS users (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            email TEXT UNIQUE NOT NULL,
-            name TEXT NOT NULL,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        );
-
-        CREATE TABLE IF NOT EXISTS wallets (
-            user_id INTEGER PRIMARY KEY,
-            balance REAL NOT NULL DEFAULT 1000000.00,
-            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY(user_id) REFERENCES users(id)
-        );
-
-        CREATE TABLE IF NOT EXISTS paper_trades (
-            id TEXT PRIMARY KEY,
-            user_id INTEGER NOT NULL,
-            symbol TEXT NOT NULL,
-            instrument_type TEXT NOT NULL DEFAULT 'EQ',
-            strike_price REAL DEFAULT 0.00,
-            expiry TEXT DEFAULT '',
-            transaction_type TEXT NOT NULL,
-            quantity INTEGER NOT NULL,
-            entry_price REAL NOT NULL,
-            entry_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            exit_price REAL,
-            exit_time TIMESTAMP,
-            status TEXT NOT NULL DEFAULT 'OPEN',
-            stop_loss REAL DEFAULT 0.00,
-            target REAL DEFAULT 0.00,
-            pnl REAL DEFAULT 0.00
-        );
-
-        CREATE TABLE IF NOT EXISTS transactions (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            user_id INTEGER NOT NULL,
-            trade_id TEXT,
-            type TEXT NOT NULL,
-            amount REAL NOT NULL,
-            balance_after REAL NOT NULL,
-            timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        );
-
-        CREATE TABLE IF NOT EXISTS candles (
-            time TEXT NOT NULL,
-            symbol TEXT NOT NULL,
-            open REAL NOT NULL,
-            high REAL NOT NULL,
-            low REAL NOT NULL,
-            close REAL NOT NULL,
-            volume INTEGER NOT NULL,
-            PRIMARY KEY (symbol, time)
-        );
-        """)
-
-        # Ensure default demo user exists
-        cursor.execute(
-            "INSERT OR IGNORE INTO users (id, email, name) VALUES (1, 'trader@finance.market', 'Pro Trader')"
-        )
-        cursor.execute(
-            "INSERT OR IGNORE INTO wallets (user_id, balance) VALUES (1, ?)",
-            (DEFAULT_WALLET_BALANCE,),
-        )
-
-        conn.commit()
-        conn.close()
-        logger.info("[DB] SQLite database schema initialized with default demo user.")
-
-    def get_wallet_balance(self, user_id: int = 1) -> float:
-        """Returns virtual wallet balance for user with PostgreSQL & SQLite fallback."""
-        if self.use_postgres and self.pg_conn:
-            try:
+    def _get_connection(self):
+        """Returns active PostgreSQL connection, reconnecting if disconnected."""
+        try:
+            if self.pg_conn is None or self.pg_conn.closed:
+                self._connect()
+            else:
                 with self.pg_conn.cursor() as cur:
-                    cur.execute("SELECT balance FROM wallets WHERE user_id = %s;", (user_id,))
-                    row = cur.fetchone()
-                    if row:
-                        return float(row[0])
-            except Exception as e:
-                logger.warning(f"[DB] PostgreSQL query failed in get_wallet_balance ({e}). Falling back to SQLite.")
-                try:
-                    self.pg_conn.rollback()
-                except Exception:
-                    pass
+                    cur.execute("SELECT 1;")
+            return self.pg_conn
+        except Exception:
+            logger.warning("[DB] PostgreSQL connection dropped; attempting reconnect...")
+            self._connect()
+            return self.pg_conn
 
-        conn = sqlite3.connect(self.sqlite_db_path)
-        cursor = conn.cursor()
-        cursor.execute("SELECT balance FROM wallets WHERE user_id = ?", (user_id,))
-        row = cursor.fetchone()
-        conn.close()
-        return row[0] if row else DEFAULT_WALLET_BALANCE
+    def _ensure_schema(self):
+        """Ensures paper trading, wallet, and transaction tables exist in PostgreSQL."""
+        conn = self._get_connection()
+        if not conn:
+            return
+
+        try:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                CREATE TABLE IF NOT EXISTS wallets (
+                    user_id VARCHAR(100) PRIMARY KEY,
+                    balance NUMERIC(20, 4) NOT NULL DEFAULT 1000000.00,
+                    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+                );
+
+                CREATE TABLE IF NOT EXISTS paper_trades (
+                    id VARCHAR(100) PRIMARY KEY,
+                    user_id VARCHAR(100) NOT NULL,
+                    symbol VARCHAR(50) NOT NULL,
+                    instrument_type VARCHAR(20) NOT NULL DEFAULT 'EQ',
+                    strike_price NUMERIC(15, 2) DEFAULT 0.00,
+                    expiry VARCHAR(50) DEFAULT '',
+                    transaction_type VARCHAR(10) NOT NULL,
+                    quantity INTEGER NOT NULL,
+                    entry_price NUMERIC(15, 2) NOT NULL,
+                    entry_time TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+                    exit_price NUMERIC(15, 2),
+                    exit_time TIMESTAMP WITH TIME ZONE,
+                    status VARCHAR(20) NOT NULL DEFAULT 'OPEN',
+                    stop_loss NUMERIC(15, 2) DEFAULT 0.00,
+                    target NUMERIC(15, 2) DEFAULT 0.00,
+                    pnl NUMERIC(15, 2) DEFAULT 0.00
+                );
+
+                CREATE TABLE IF NOT EXISTS transactions (
+                    id SERIAL PRIMARY KEY,
+                    user_id VARCHAR(100) NOT NULL,
+                    trade_id VARCHAR(100),
+                    type VARCHAR(20) NOT NULL,
+                    amount NUMERIC(20, 4) NOT NULL,
+                    balance_after NUMERIC(20, 4) NOT NULL,
+                    timestamp TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+                );
+
+                CREATE TABLE IF NOT EXISTS candles (
+                    time TIMESTAMP WITH TIME ZONE NOT NULL,
+                    symbol VARCHAR(50) NOT NULL,
+                    open NUMERIC(15, 2) NOT NULL,
+                    high NUMERIC(15, 2) NOT NULL,
+                    low NUMERIC(15, 2) NOT NULL,
+                    close NUMERIC(15, 2) NOT NULL,
+                    volume BIGINT NOT NULL,
+                    PRIMARY KEY (symbol, time)
+                );
+
+                INSERT INTO wallets (user_id, balance) 
+                VALUES ('1', %s) 
+                ON CONFLICT (user_id) DO NOTHING;
+                """,
+                    (DEFAULT_WALLET_BALANCE,),
+                )
+                conn.commit()
+                logger.info("[DB] PostgreSQL paper trading and wallet schema verified.")
+        except Exception as e:
+            conn.rollback()
+            logger.error(f"[DB] Error ensuring PostgreSQL schema: {e}", exc_info=True)
+
+    def get_wallet_balance(self, user_id: Any = 1) -> float:
+        """Returns virtual wallet balance for user from PostgreSQL."""
+        conn = self._get_connection()
+        if not conn:
+            raise RuntimeError("Database connection unavailable. PostgreSQL is required.")
+
+        uid = str(user_id)
+        try:
+            with conn.cursor() as cur:
+                cur.execute("SELECT balance FROM wallets WHERE user_id = %s;", (uid,))
+                row = cur.fetchone()
+                if row:
+                    return float(row[0])
+
+                # Provision initial wallet balance if user record does not exist
+                cur.execute(
+                    "INSERT INTO wallets (user_id, balance) VALUES (%s, %s) ON CONFLICT (user_id) DO NOTHING RETURNING balance;",
+                    (uid, DEFAULT_WALLET_BALANCE),
+                )
+                conn.commit()
+                return float(DEFAULT_WALLET_BALANCE)
+        except Exception as e:
+            conn.rollback()
+            logger.error(f"[DB] PostgreSQL query failed in get_wallet_balance ({e}).")
+            raise
 
     def execute_paper_trade(
         self,
-        user_id: int,
+        user_id: Any,
         symbol: str,
         transaction_type: str,
         quantity: int,
@@ -186,218 +198,130 @@ class DatabaseService:
         stop_loss: float = 0.0,
         target: float = 0.0,
     ) -> Dict[str, Any]:
-        """Atomically executes a paper trade and updates user wallet balance (PostgreSQL & SQLite fallback)."""
+        """Atomically executes a paper trade and updates user wallet balance in PostgreSQL."""
         trade_id = f"trade_{int(datetime.now(timezone.utc).timestamp() * 1000)}"
         total_cost = price * quantity
+        uid = str(user_id)
 
-        if self.use_postgres and self.pg_conn:
-            try:
-                with self.pg_conn.cursor() as cur:
-                    cur.execute(
-                        "SELECT balance FROM wallets WHERE user_id = %s FOR UPDATE;",
-                        (user_id,),
-                    )
-                    row = cur.fetchone()
-                    current_balance = float(row[0]) if row else DEFAULT_WALLET_BALANCE
+        conn = self._get_connection()
+        if not conn:
+            return {"status": "error", "message": "PostgreSQL database connection unavailable."}
 
-                    if transaction_type == "BUY" and current_balance < total_cost:
-                        return {
-                            "status": "error",
-                            "message": "Insufficient wallet funds for this order.",
-                        }
-
-                    new_balance = (
-                        current_balance - total_cost if transaction_type == "BUY" else current_balance + total_cost
-                    )
-
-                    cur.execute(
-                        """
-                        INSERT INTO paper_trades (id, user_id, symbol, instrument_type, strike_price, expiry, transaction_type, quantity, entry_price, status, stop_loss, target)
-                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, 'OPEN', %s, %s);
-                    """,
-                        (
-                            trade_id,
-                            user_id,
-                            symbol,
-                            instrument_type,
-                            strike_price,
-                            expiry,
-                            transaction_type,
-                            quantity,
-                            price,
-                            stop_loss,
-                            target,
-                        ),
-                    )
-
-                    cur.execute(
-                        "UPDATE wallets SET balance = %s, updated_at = CURRENT_TIMESTAMP WHERE user_id = %s;",
-                        (new_balance, user_id),
-                    )
-
-                    cur.execute(
-                        """
-                        INSERT INTO transactions (user_id, trade_id, type, amount, balance_after)
-                        VALUES (%s, %s, %s, %s, %s);
-                    """,
-                        (user_id, trade_id, transaction_type, total_cost, new_balance),
-                    )
-
-                    self.pg_conn.commit()
-
-                    return {
-                        "status": "success",
-                        "trade_id": trade_id,
-                        "symbol": symbol,
-                        "transaction_type": transaction_type,
-                        "quantity": quantity,
-                        "entry_price": price,
-                        "wallet_balance": new_balance,
-                    }
-            except Exception as e:
-                logger.warning(
-                    f"[DB] PostgreSQL execute_paper_trade failed ({e}). Rolling back and falling back to SQLite."
+        try:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT balance FROM wallets WHERE user_id = %s FOR UPDATE;",
+                    (uid,),
                 )
-                try:
-                    self.pg_conn.rollback()
-                except Exception:
-                    pass
+                row = cur.fetchone()
+                current_balance = float(row[0]) if row else DEFAULT_WALLET_BALANCE
 
-        # SQLite Fallback
-        conn = sqlite3.connect(self.sqlite_db_path)
-        cursor = conn.cursor()
-
-        cursor.execute("SELECT balance FROM wallets WHERE user_id = ?", (user_id,))
-        row = cursor.fetchone()
-        current_balance = row[0] if row else DEFAULT_WALLET_BALANCE
-
-        if transaction_type == "BUY" and current_balance < total_cost:
-            conn.close()
-            return {
-                "status": "error",
-                "message": "Insufficient wallet funds for this order.",
-            }
-
-        new_balance = current_balance - total_cost if transaction_type == "BUY" else current_balance + total_cost
-
-        cursor.execute(
-            """
-            INSERT INTO paper_trades (id, user_id, symbol, instrument_type, strike_price, expiry, transaction_type, quantity, entry_price, status, stop_loss, target)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'OPEN', ?, ?)
-        """,
-            (
-                trade_id,
-                user_id,
-                symbol,
-                instrument_type,
-                strike_price,
-                expiry,
-                transaction_type,
-                quantity,
-                price,
-                stop_loss,
-                target,
-            ),
-        )
-
-        cursor.execute(
-            "UPDATE wallets SET balance = ?, updated_at = CURRENT_TIMESTAMP WHERE user_id = ?",
-            (new_balance, user_id),
-        )
-
-        cursor.execute(
-            """
-            INSERT INTO transactions (user_id, trade_id, type, amount, balance_after)
-            VALUES (?, ?, ?, ?, ?)
-        """,
-            (user_id, trade_id, transaction_type, total_cost, new_balance),
-        )
-
-        conn.commit()
-        conn.close()
-
-        return {
-            "status": "success",
-            "trade_id": trade_id,
-            "symbol": symbol,
-            "transaction_type": transaction_type,
-            "quantity": quantity,
-            "entry_price": price,
-            "wallet_balance": new_balance,
-        }
-
-    def get_user_trades(self, user_id: int = 1) -> List[Dict[str, Any]]:
-        """Fetches all open and closed trades for a user with PostgreSQL & SQLite fallback."""
-        if self.use_postgres and self.pg_conn:
-            try:
-                with self.pg_conn.cursor() as cur:
+                if not row:
                     cur.execute(
-                        """
-                        SELECT id, symbol, instrument_type, strike_price, expiry, transaction_type, quantity, entry_price, entry_time, status, stop_loss, target, pnl
-                        FROM paper_trades WHERE user_id = %s ORDER BY entry_time DESC;
-                    """,
-                        (user_id,),
+                        "INSERT INTO wallets (user_id, balance) VALUES (%s, %s);",
+                        (uid, current_balance),
                     )
-                    rows = cur.fetchall()
-                    trades = []
-                    for r in rows:
-                        trades.append(
-                            {
-                                "id": r[0],
-                                "symbol": r[1],
-                                "instrument_type": r[2],
-                                "strike_price": float(r[3]) if r[3] is not None else 0.0,
-                                "expiry": r[4] or "",
-                                "transaction_type": r[5],
-                                "quantity": int(r[6]),
-                                "entry_price": float(r[7]),
-                                "entry_time": r[8].isoformat() if hasattr(r[8], "isoformat") else str(r[8]),
-                                "status": r[9],
-                                "stop_loss": float(r[10]) if r[10] is not None else 0.0,
-                                "target": float(r[11]) if r[11] is not None else 0.0,
-                                "pnl": float(r[12]) if r[12] is not None else 0.0,
-                            }
-                        )
-                    return trades
-            except Exception as e:
-                logger.warning(f"[DB] PostgreSQL query failed in get_user_trades ({e}). Falling back to SQLite.")
-                try:
-                    self.pg_conn.rollback()
-                except Exception:
-                    pass
 
-        conn = sqlite3.connect(self.sqlite_db_path)
-        cursor = conn.cursor()
-        cursor.execute(
-            """
-            SELECT id, symbol, instrument_type, strike_price, expiry, transaction_type, quantity, entry_price, entry_time, status, stop_loss, target, pnl
-            FROM paper_trades WHERE user_id = ? ORDER BY entry_time DESC
-        """,
-            (user_id,),
-        )
-        rows = cursor.fetchall()
-        conn.close()
+                if transaction_type == "BUY" and current_balance < total_cost:
+                    return {
+                        "status": "error",
+                        "message": "Insufficient wallet funds for this order.",
+                    }
 
-        trades = []
-        for r in rows:
-            trades.append(
-                {
-                    "id": r[0],
-                    "symbol": r[1],
-                    "instrument_type": r[2],
-                    "strike_price": r[3],
-                    "expiry": r[4],
-                    "transaction_type": r[5],
-                    "quantity": r[6],
-                    "entry_price": r[7],
-                    "entry_time": r[8],
-                    "status": r[9],
-                    "stop_loss": r[10],
-                    "target": r[11],
-                    "pnl": r[12],
+                new_balance = (
+                    current_balance - total_cost if transaction_type == "BUY" else current_balance + total_cost
+                )
+
+                cur.execute(
+                    """
+                    INSERT INTO paper_trades (id, user_id, symbol, instrument_type, strike_price, expiry, transaction_type, quantity, entry_price, status, stop_loss, target)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, 'OPEN', %s, %s);
+                    """,
+                    (
+                        trade_id,
+                        uid,
+                        symbol,
+                        instrument_type,
+                        strike_price,
+                        expiry,
+                        transaction_type,
+                        quantity,
+                        price,
+                        stop_loss,
+                        target,
+                    ),
+                )
+
+                cur.execute(
+                    "UPDATE wallets SET balance = %s, updated_at = CURRENT_TIMESTAMP WHERE user_id = %s;",
+                    (new_balance, uid),
+                )
+
+                cur.execute(
+                    """
+                    INSERT INTO transactions (user_id, trade_id, type, amount, balance_after)
+                    VALUES (%s, %s, %s, %s, %s);
+                    """,
+                    (uid, trade_id, transaction_type, total_cost, new_balance),
+                )
+
+                conn.commit()
+
+                return {
+                    "status": "success",
+                    "trade_id": trade_id,
+                    "symbol": symbol,
+                    "transaction_type": transaction_type,
+                    "quantity": quantity,
+                    "entry_price": price,
+                    "wallet_balance": new_balance,
                 }
-            )
-        return trades
+        except Exception as e:
+            conn.rollback()
+            logger.error(f"[DB] PostgreSQL execute_paper_trade failed: {e}", exc_info=True)
+            return {"status": "error", "message": f"Trade execution failed: {str(e)}"}
+
+    def get_user_trades(self, user_id: Any = 1) -> List[Dict[str, Any]]:
+        """Fetches all open and closed trades for a user from PostgreSQL."""
+        conn = self._get_connection()
+        if not conn:
+            raise RuntimeError("Database connection unavailable. PostgreSQL is required.")
+
+        uid = str(user_id)
+        try:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT id, symbol, instrument_type, strike_price, expiry, transaction_type, quantity, entry_price, entry_time, status, stop_loss, target, pnl
+                    FROM paper_trades WHERE user_id = %s ORDER BY entry_time DESC;
+                    """,
+                    (uid,),
+                )
+                rows = cur.fetchall()
+                trades = []
+                for r in rows:
+                    trades.append(
+                        {
+                            "id": r[0],
+                            "symbol": r[1],
+                            "instrument_type": r[2],
+                            "strike_price": float(r[3]) if r[3] is not None else 0.0,
+                            "expiry": r[4] or "",
+                            "transaction_type": r[5],
+                            "quantity": int(r[6]),
+                            "entry_price": float(r[7]),
+                            "entry_time": r[8].isoformat() if hasattr(r[8], "isoformat") else str(r[8]),
+                            "status": r[9],
+                            "stop_loss": float(r[10]) if r[10] is not None else 0.0,
+                            "target": float(r[11]) if r[11] is not None else 0.0,
+                            "pnl": float(r[12]) if r[12] is not None else 0.0,
+                        }
+                    )
+                return trades
+        except Exception as e:
+            conn.rollback()
+            logger.error(f"[DB] PostgreSQL query failed in get_user_trades: {e}", exc_info=True)
+            raise
 
 
 # Global singleton instance

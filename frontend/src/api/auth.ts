@@ -2,7 +2,7 @@
  * Authentication & 2FA API Communication Layer
  * ============================================
  * Provides typed, robust HTTP communication with FastAPI authentication services.
- * Handles single-admin credentials, 2FA challenge tokens, and structured error responses.
+ * Handles single-admin credentials, 2FA challenge tokens, master keys, and structured error responses.
  */
 
 import { AUTH_ENDPOINTS } from '../endpoints/auth.endpoints';
@@ -40,6 +40,44 @@ export interface TwoFactorStatusResponse {
   is_enabled: boolean;
   status: string;
   enabled_at: string | null;
+}
+
+export interface MasterKeyVerifyRequest {
+  master_key: string;
+  email?: string;
+}
+
+export interface MasterKeyVerifyResponse {
+  success: boolean;
+  message: string;
+  reset_token: string;
+  expires_in: number;
+}
+
+export interface PasswordResetWithKeyRequest {
+  reset_token: string;
+  new_password: string;
+  confirm_password: string;
+}
+
+export interface PasswordResetWithKeyResponse {
+  success: boolean;
+  message: string;
+  user_id?: string;
+}
+
+export interface MasterKeyNotificationResponse {
+  has_notification: boolean;
+  notification_id?: string | null;
+  master_key?: string | null;
+  title?: string | null;
+  message?: string | null;
+  created_at?: string | null;
+}
+
+export interface DismissNotificationResponse {
+  success: boolean;
+  message: string;
 }
 
 export class AuthApiError extends Error {
@@ -230,6 +268,93 @@ export async function disable2FaApi(token: string, password: string, code: strin
       Authorization: `Bearer ${token}`,
     },
     body: JSON.stringify({ password, code: code.trim() }),
+  });
+
+  if (!res.ok) {
+    throw await parseErrorResponse(res);
+  }
+
+  return res.json();
+}
+
+/**
+ * Stage 1: Verify Master Security Key to obtain single-use reset token
+ */
+export async function verifyMasterKeyApi(req: MasterKeyVerifyRequest): Promise<MasterKeyVerifyResponse> {
+  const res = await fetch(AUTH_ENDPOINTS.VERIFY_MASTER_KEY, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Accept: 'application/json',
+    },
+    body: JSON.stringify({
+      master_key: req.master_key.trim(),
+      ...(req.email ? { email: req.email.trim() } : {}),
+    }),
+  });
+
+  if (!res.ok) {
+    throw await parseErrorResponse(res);
+  }
+
+  return res.json();
+}
+
+/**
+ * Stage 2: Reset password using the single-use reset token
+ */
+export async function resetPasswordWithKeyApi(req: PasswordResetWithKeyRequest): Promise<PasswordResetWithKeyResponse> {
+  const res = await fetch(AUTH_ENDPOINTS.RESET_PASSWORD_WITH_KEY, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Accept: 'application/json',
+    },
+    body: JSON.stringify({
+      reset_token: req.reset_token,
+      new_password: req.new_password,
+      confirm_password: req.confirm_password,
+    }),
+  });
+
+  if (!res.ok) {
+    throw await parseErrorResponse(res);
+  }
+
+  return res.json();
+}
+
+/**
+ * Fetches active unacknowledged Master Key rotation notification (for Bell icon)
+ */
+export async function getPendingMasterKeyNotificationApi(accessToken: string): Promise<MasterKeyNotificationResponse> {
+  const res = await fetch(AUTH_ENDPOINTS.MASTER_KEY_NOTIFICATION, {
+    method: 'GET',
+    headers: {
+      Accept: 'application/json',
+      Authorization: `Bearer ${accessToken}`,
+    },
+  });
+
+  if (!res.ok) {
+    throw await parseErrorResponse(res);
+  }
+
+  return res.json();
+}
+
+/**
+ * Dismisses the Master Key notification and requests server-side plaintext scrubbing
+ */
+export async function dismissMasterKeyNotificationApi(accessToken: string, notificationId: string): Promise<DismissNotificationResponse> {
+  const res = await fetch(AUTH_ENDPOINTS.DISMISS_MASTER_KEY_NOTIFICATION, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Accept: 'application/json',
+      Authorization: `Bearer ${accessToken}`,
+    },
+    body: JSON.stringify({ notification_id: notificationId }),
   });
 
   if (!res.ok) {

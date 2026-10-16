@@ -1,10 +1,31 @@
 import React, { useState } from 'react';
-import { TrendingUp, Key, Lock, Eye, EyeOff, ArrowLeft, ShieldCheck, CheckCircle2, AlertCircle } from 'lucide-react';
+import {
+  TrendingUp,
+  Key,
+  Lock,
+  Eye,
+  EyeOff,
+  ArrowLeft,
+  ShieldCheck,
+  CheckCircle2,
+  AlertCircle,
+  AlertTriangle,
+  Clock,
+  RotateCcw,
+} from 'lucide-react';
+import {
+  verifyMasterKeyApi,
+  resetPasswordWithKeyApi,
+  AuthApiError,
+} from '../api/auth';
 
 interface ForgotPasswordViewProps {
   onBackToLogin: () => void;
   onPasswordResetSuccess: () => void;
 }
+
+// Master Key regex: 4 blocks of 4 alphanumeric uppercase characters
+const MASTER_KEY_REGEX = /^[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{4}$/;
 
 export const ForgotPasswordView: React.FC<ForgotPasswordViewProps> = ({
   onBackToLogin,
@@ -18,6 +39,10 @@ export const ForgotPasswordView: React.FC<ForgotPasswordViewProps> = ({
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
 
+  // Security token state (received from Stage 1 verify)
+  const [resetToken, setResetToken] = useState<string | null>(null);
+  const [tokenExpiresIn, setTokenExpiresIn] = useState<number | null>(null);
+
   // Visibility toggles
   const [showMasterKey, setShowMasterKey] = useState(false);
   const [showNewPassword, setShowNewPassword] = useState(false);
@@ -26,54 +51,151 @@ export const ForgotPasswordView: React.FC<ForgotPasswordViewProps> = ({
   // Status & loading
   const [isLoading, setIsLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [warningMsg, setWarningMsg] = useState<string | null>(null);
+  const [sessionExpired, setSessionExpired] = useState(false);
 
-  // Step 1: Verify Master Key
-  const handleVerifyMasterKey = (e: React.FormEvent) => {
-    e.preventDefault();
+  // Auto-format master key helper: converts to uppercase and inserts dashes
+  const handleMasterKeyChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setErrorMsg(null);
+    setWarningMsg(null);
 
-    if (!masterKey.trim()) {
-      setErrorMsg('Please enter your Master Security Key');
-      return;
+    // Clean input: uppercase alphanumeric and hyphen only
+    const raw = e.target.value.toUpperCase().replace(/[^A-Z0-9-]/g, '');
+
+    // Auto-dash formatting if user types continuous alphanumeric string
+    const cleanChars = raw.replace(/-/g, '').slice(0, 16);
+    const parts: string[] = [];
+    for (let i = 0; i < cleanChars.length; i += 4) {
+      parts.push(cleanChars.slice(i, i + 4));
     }
+    const formatted = parts.join('-');
 
-    setIsLoading(true);
-    setTimeout(() => {
-      setIsLoading(false);
-      if (masterKey.trim().length < 4) {
-        setErrorMsg('Master Security Key must be at least 4 characters');
-        return;
-      }
-      setStep('reset-password');
-    }, 700);
+    setMasterKey(formatted);
   };
 
-  // Step 2: Reset Password
-  const handleResetPassword = (e: React.FormEvent) => {
+  // Step 1: Verify Master Key via Backend API
+  const handleVerifyMasterKey = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMsg(null);
+    setWarningMsg(null);
 
-    if (!newPassword) {
-      setErrorMsg('Please enter a new password');
+    const trimmedKey = masterKey.trim();
+
+    if (!trimmedKey) {
+      setErrorMsg('Please enter your Master Security Key.');
       return;
     }
-    if (newPassword.length < 6) {
-      setErrorMsg('Password should be at least 6 characters long');
-      return;
-    }
-    if (newPassword !== confirmPassword) {
-      setErrorMsg('New password and Confirm password do not match');
+
+    if (!MASTER_KEY_REGEX.test(trimmedKey)) {
+      setErrorMsg('Master Key must be in the format: XXXX-XXXX-XXXX-XXXX (e.g. ABCD-1234-EFGH-5678)');
       return;
     }
 
     setIsLoading(true);
-    setTimeout(() => {
+
+    try {
+      const response = await verifyMasterKeyApi({ master_key: trimmedKey });
+
+      if (response.success && response.reset_token) {
+        setResetToken(response.reset_token);
+        setTokenExpiresIn(response.expires_in || 900);
+        setSessionExpired(false);
+        setStep('reset-password');
+      } else {
+        setErrorMsg(response.message || 'Verification could not be completed. Please try again.');
+      }
+    } catch (err: unknown) {
+      if (err instanceof AuthApiError) {
+        if (err.statusCode === 429) {
+          setErrorMsg(err.message || 'Rate limit exceeded. Too many attempts. Please wait 15 minutes before retrying.');
+        } else if (err.statusCode === 401) {
+          setErrorMsg(err.message || 'Invalid Master Security Key. Please verify and re-enter.');
+        } else if (err.statusCode === 422) {
+          setErrorMsg('Invalid Master Key format. Expected 4 blocks of 4 alphanumeric characters.');
+        } else {
+          setErrorMsg(err.message || 'Master Key verification failed. Please try again.');
+        }
+      } else {
+        setErrorMsg('Unable to connect to authentication server. Please verify your connection.');
+      }
+    } finally {
       setIsLoading(false);
-      setStep('success');
-      setTimeout(() => {
-        onPasswordResetSuccess();
-      }, 1600);
-    }, 800);
+    }
+  };
+
+  // Step 2: Reset Password via Backend API
+  const handleResetPassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setErrorMsg(null);
+    setWarningMsg(null);
+
+    if (!resetToken) {
+      setErrorMsg('Verification session missing or expired. Please verify your Master Key again.');
+      setSessionExpired(true);
+      return;
+    }
+
+    if (!newPassword) {
+      setErrorMsg('Please enter a new password.');
+      return;
+    }
+
+    if (newPassword.length < 6) {
+      setErrorMsg('New password must be at least 6 characters long.');
+      return;
+    }
+
+    if (newPassword !== confirmPassword) {
+      setErrorMsg('New password and Confirm password do not match.');
+      return;
+    }
+
+    setIsLoading(true);
+
+    try {
+      const response = await resetPasswordWithKeyApi({
+        reset_token: resetToken,
+        new_password: newPassword,
+        confirm_password: confirmPassword,
+      });
+
+      if (response.success) {
+        setStep('success');
+        // Clear sensitive token from state
+        setResetToken(null);
+      } else {
+        setErrorMsg(response.message || 'Password update failed. Please try again.');
+      }
+    } catch (err: unknown) {
+      if (err instanceof AuthApiError) {
+        if (err.statusCode === 401) {
+          setErrorMsg('Your reset session has expired (15-minute window). Please verify your Master Key again.');
+          setSessionExpired(true);
+        } else if (err.statusCode === 400 && err.code === 'BAD_REQUEST') {
+          // Password history or business error
+          setErrorMsg(err.message || 'New password cannot be the same as any of your recently used passwords.');
+        } else if (err.statusCode === 429) {
+          setErrorMsg('Too many reset attempts. Please slow down and try again shortly.');
+        } else {
+          setErrorMsg(err.message || 'Failed to update password. Please ensure requirements are met.');
+        }
+      } else {
+        setErrorMsg('Network error while resetting password. Please check your connection.');
+      }
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // Restart recovery flow if session expired
+  const handleRestartFlow = () => {
+    setResetToken(null);
+    setSessionExpired(false);
+    setErrorMsg(null);
+    setWarningMsg(null);
+    setNewPassword('');
+    setConfirmPassword('');
+    setStep('verify-key');
   };
 
   return (
@@ -96,24 +218,40 @@ export const ForgotPasswordView: React.FC<ForgotPasswordViewProps> = ({
           {step === 'reset-password' &&
             'Master key verified. Choose a strong new password for your terminal access.'}
           {step === 'success' &&
-            'Your security credentials have been updated. Redirecting to terminal login...'}
+            'Your security credentials have been updated. You can now log in.'}
         </p>
       </div>
 
       {/* Error Alert Banner */}
       {errorMsg && (
-        <div className="forgot-error-banner">
-          <AlertCircle size={16} />
+        <div className="forgot-error-banner" role="alert">
+          <AlertCircle size={16} style={{ flexShrink: 0 }} />
           <span>{errorMsg}</span>
         </div>
       )}
 
-      {/* STEP 1: Verify Master Key ONLY */}
+      {/* Warning Alert Banner (e.g., remaining attempts or session notice) */}
+      {warningMsg && (
+        <div
+          className="forgot-error-banner"
+          style={{
+            backgroundColor: 'rgba(255, 183, 3, 0.12)',
+            borderColor: 'rgba(255, 183, 3, 0.4)',
+            color: '#ffb703',
+          }}
+          role="status"
+        >
+          <AlertTriangle size={16} style={{ flexShrink: 0 }} />
+          <span>{warningMsg}</span>
+        </div>
+      )}
+
+      {/* STEP 1: Verify Master Key */}
       {step === 'verify-key' && (
-        <form onSubmit={handleVerifyMasterKey} className="forgot-form">
+        <form onSubmit={handleVerifyMasterKey} className="forgot-form" noValidate>
           <div>
             <label htmlFor="master-key-input" className="forgot-field-label">
-              Master Key
+              Master Security Key
             </label>
             <div className="auth-input-wrapper">
               <Key size={16} className="auth-input-icon-left" />
@@ -122,10 +260,14 @@ export const ForgotPasswordView: React.FC<ForgotPasswordViewProps> = ({
                 type={showMasterKey ? 'text' : 'password'}
                 required
                 autoFocus
-                placeholder="Enter authorized Master Key..."
+                autoComplete="off"
+                spellCheck="false"
+                maxLength={19}
+                placeholder="XXXX-XXXX-XXXX-XXXX"
                 value={masterKey}
-                onChange={(e) => setMasterKey(e.target.value)}
+                onChange={handleMasterKeyChange}
                 className="groww-input forgot-input-control forgot-key-input"
+                style={{ letterSpacing: '0.08em', fontWeight: 600 }}
               />
               <button
                 type="button"
@@ -136,14 +278,33 @@ export const ForgotPasswordView: React.FC<ForgotPasswordViewProps> = ({
                 {showMasterKey ? <EyeOff size={16} /> : <Eye size={16} />}
               </button>
             </div>
-            <span className="forgot-helper-note">
-              Security Note: Only Dinesh Pawara’s master key can authorize this reset.
-            </span>
+            <div
+              style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                marginTop: '6px',
+              }}
+            >
+              <span className="forgot-helper-note">
+                Format: 16 alphanumeric characters separated by dashes.
+              </span>
+              <span
+                style={{
+                  fontSize: '0.72rem',
+                  color: masterKey.length === 19 ? 'var(--groww-green)' : 'var(--text-muted)',
+                  fontFamily: 'monospace',
+                  fontWeight: 600,
+                }}
+              >
+                {masterKey.length}/19
+              </span>
+            </div>
           </div>
 
           <button
             type="submit"
-            disabled={isLoading}
+            disabled={isLoading || masterKey.length < 19}
             className="groww-btn groww-btn-primary forgot-submit-btn"
           >
             {isLoading ? (
@@ -167,10 +328,28 @@ export const ForgotPasswordView: React.FC<ForgotPasswordViewProps> = ({
               <CheckCircle2 size={16} />
               <span>Master Key Verified</span>
             </div>
-            <span style={{ fontSize: '0.72rem', opacity: 0.8, fontFamily: 'monospace' }}>
-              AUTH-OK
-            </span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <Clock size={13} style={{ opacity: 0.8 }} />
+              <span style={{ fontSize: '0.72rem', opacity: 0.9, fontFamily: 'monospace' }}>
+                Valid for {tokenExpiresIn ? Math.floor(tokenExpiresIn / 60) : 15}m
+              </span>
+            </div>
           </div>
+
+          {/* Session Expired Reset Prompt */}
+          {sessionExpired && (
+            <div style={{ textAlign: 'center', margin: '4px 0' }}>
+              <button
+                type="button"
+                onClick={handleRestartFlow}
+                className="forgot-back-btn"
+                style={{ color: 'var(--groww-green)', gap: '6px' }}
+              >
+                <RotateCcw size={14} />
+                <span>Click here to re-verify your Master Key</span>
+              </button>
+            </div>
+          )}
 
           {/* New Password Field */}
           <div>
@@ -184,7 +363,8 @@ export const ForgotPasswordView: React.FC<ForgotPasswordViewProps> = ({
                 type={showNewPassword ? 'text' : 'password'}
                 required
                 autoFocus
-                placeholder="Enter new password"
+                autoComplete="new-password"
+                placeholder="Enter new password (min. 6 characters)"
                 value={newPassword}
                 onChange={(e) => setNewPassword(e.target.value)}
                 className="groww-input forgot-input-control"
@@ -211,6 +391,7 @@ export const ForgotPasswordView: React.FC<ForgotPasswordViewProps> = ({
                 id="confirm-password-input"
                 type={showConfirmPassword ? 'text' : 'password'}
                 required
+                autoComplete="new-password"
                 placeholder="Re-enter new password"
                 value={confirmPassword}
                 onChange={(e) => setConfirmPassword(e.target.value)}
@@ -239,7 +420,7 @@ export const ForgotPasswordView: React.FC<ForgotPasswordViewProps> = ({
 
           <button
             type="submit"
-            disabled={isLoading}
+            disabled={isLoading || sessionExpired || !newPassword || newPassword !== confirmPassword}
             className="groww-btn groww-btn-primary forgot-submit-btn"
           >
             {isLoading ? <span>Updating Password...</span> : <span>Save New Password</span>}
@@ -257,12 +438,12 @@ export const ForgotPasswordView: React.FC<ForgotPasswordViewProps> = ({
             Password Reset Successfully
           </span>
           <p className="forgot-success-desc">
-            You can now log in using your new credentials.
+            Your credentials have been securely updated. You can now log into your terminal account.
           </p>
           <button
             onClick={onPasswordResetSuccess}
             className="groww-btn groww-btn-primary"
-            style={{ width: '100%', height: '42px', borderRadius: '10px' }}
+            style={{ width: '100%', height: '44px', borderRadius: '12px' }}
           >
             Proceed to Login
           </button>

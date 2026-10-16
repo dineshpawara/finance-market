@@ -10,6 +10,16 @@ from .auth_service import (
     PasswordExpiredError,
 )
 
+from .seed_service import seed_default_user, seed_master_key_for_user
+from .master_key_service import (
+    MasterKeyService,
+    InvalidMasterKeyError,
+    MasterKeyLockoutError,
+    InvalidResetTokenError,
+    PasswordMismatchError,
+    PasswordReuseError,
+)
+
 __all__ = [
     "NewsService",
     "news_service",
@@ -18,4 +28,12 @@ __all__ = [
     "InvalidCredentialsError",
     "AccountDisabledError",
     "PasswordExpiredError",
+    "seed_default_user",
+    "seed_master_key_for_user",
+    "MasterKeyService",
+    "InvalidMasterKeyError",
+    "MasterKeyLockoutError",
+    "InvalidResetTokenError",
+    "PasswordMismatchError",
+    "PasswordReuseError",
 ]

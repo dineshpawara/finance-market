@@ -18,4 +18,12 @@ export const AUTH_ENDPOINTS = {
   VERIFY_SETUP_2FA: `${BASE_API_URL}/2fa/verify-setup`,
   STATUS_2FA: `${BASE_API_URL}/2fa/status`,
   DISABLE_2FA: `${BASE_API_URL}/2fa/disable`,
+
+  // Master Key 2-Stage Password Recovery Endpoints
+  VERIFY_MASTER_KEY: `${BASE_API_URL}/auth/master-key/verify`,
+  RESET_PASSWORD_WITH_KEY: `${BASE_API_URL}/auth/master-key/reset-password`,
+
+  // Master Key In-App Rotation Notifications
+  MASTER_KEY_NOTIFICATION: `${BASE_API_URL}/auth/master-key/notification`,
+  DISMISS_MASTER_KEY_NOTIFICATION: `${BASE_API_URL}/auth/master-key/notification/dismiss`,
 };
