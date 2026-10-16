@@ -61,11 +61,22 @@ class RedisService:
                 "password": password,
                 "db": 0,
                 "decode_responses": True,
-                "socket_timeout": 3,
+                "socket_timeout": 2,
+                "socket_connect_timeout": 1,
             }
             if tls_ca_cert:
-                redis_kwargs["ssl"] = True
-                redis_kwargs["ssl_ca_certs"] = tls_ca_cert
+                import ssl
+                from pathlib import Path
+
+                ca_path = Path(tls_ca_cert)
+                if not ca_path.is_absolute():
+                    backend_dir = Path(__file__).resolve().parent.parent
+                    ca_path = (backend_dir / ca_path).resolve()
+
+                if ca_path.is_file():
+                    redis_kwargs["ssl"] = True
+                    redis_kwargs["ssl_ca_certs"] = str(ca_path)
+                    redis_kwargs["ssl_cert_reqs"] = ssl.CERT_NONE
 
             client = redis.Redis(**redis_kwargs)
             client.ping()

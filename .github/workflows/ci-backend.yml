@@ -97,4 +97,7 @@ jobs:
           POSTGRES_DB: test_finance_market
           REDIS_HOST: localhost
           REDIS_PORT: 6379
+          SECRET_KEY: "ci-test-secure-key-32-chars-long-finance-market"
+          EMAIL: "admin@finance.market"
+          PASSWORD: "TestPassword@123"
         run: uv run pytest -v
